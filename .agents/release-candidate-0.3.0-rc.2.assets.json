@@ -1,0 +1,257 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-09-05 01:50:07 UTC",
+  "release": {
+    "repository": "AlsoBeltrix/PowerShell-Token-Killer",
+    "id": 383097364,
+    "tag": "v0.3.0-rc.2",
+    "title": "ptk 0.3.0-rc.2",
+    "draft": true,
+    "published_at": null,
+    "target_commitish": "6ab7040bde61adcf6722830dbb5807ac295ec166"
+  },
+  "release_workflow": {
+    "run_id": 33935468032,
+    "conclusion": "success",
+    "jobs": [
+      {
+        "rid": "linux-x64",
+        "job_id": 101222420814,
+        "conclusion": "success"
+      },
+      {
+        "rid": "osx-arm64",
+        "job_id": 101222420930,
+        "conclusion": "success"
+      },
+      {
+        "rid": "win-arm64",
+        "job_id": 101222421000,
+        "conclusion": "success"
+      },
+      {
+        "rid": "linux-arm64",
+        "job_id": 101222421003,
+        "conclusion": "success"
+      },
+      {
+        "rid": "win-x64",
+        "job_id": 101222421067,
+        "conclusion": "success"
+      },
+      {
+        "rid": "draft",
+        "job_id": 101226565157,
+        "conclusion": "success"
+      }
+    ]
+  },
+  "ordinary_ci": {
+    "run_id": 33935459185,
+    "conclusion": "success",
+    "job_count": 6
+  },
+  "download_verification": {
+    "release_id": 383097364,
+    "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+    "draft": true,
+    "mac_tested_archive_match": true,
+    "assets": [
+      {
+        "name": "ptk-0.3.0-rc.2-linux-arm64.tar.gz",
+        "sha256": "bf3457dc6391ea7356b98ad6ae8ec215b8ccefb9eb0e3f63689c4ed8e73b0f37",
+        "github_digest": "sha256:bf3457dc6391ea7356b98ad6ae8ec215b8ccefb9eb0e3f63689c4ed8e73b0f37",
+        "asset_id": 545199489
+      },
+      {
+        "name": "ptk-0.3.0-rc.2-linux-x64.tar.gz",
+        "sha256": "43325c674fa98e4fdc08d87b87236b7417c0a153ed845085ecf7668166cb5274",
+        "github_digest": "sha256:43325c674fa98e4fdc08d87b87236b7417c0a153ed845085ecf7668166cb5274",
+        "asset_id": 545199465
+      },
+      {
+        "name": "ptk-0.3.0-rc.2-osx-arm64.tar.gz",
+        "sha256": "cfd08fbafb8893775dee5c047622b3694952a48bce5f520f9d1fe78b1ee03d79",
+        "github_digest": "sha256:cfd08fbafb8893775dee5c047622b3694952a48bce5f520f9d1fe78b1ee03d79",
+        "asset_id": 545199491
+      },
+      {
+        "name": "ptk-0.3.0-rc.2-win-arm64.zip",
+        "sha256": "9365e0145a235d10b5c57cae8ea6b5afaf2645b3f961ca296db30f741ab926b1",
+        "github_digest": "sha256:9365e0145a235d10b5c57cae8ea6b5afaf2645b3f961ca296db30f741ab926b1",
+        "asset_id": 545199467
+      },
+      {
+        "name": "ptk-0.3.0-rc.2-win-x64.zip",
+        "sha256": "0ea551e160dd04c65dfaac3c9e6488fdef576e374a69ee5c6e460436588b2c81",
+        "github_digest": "sha256:0ea551e160dd04c65dfaac3c9e6488fdef576e374a69ee5c6e460436588b2c81",
+        "asset_id": 545199464
+      },
+      {
+        "name": "ptk-installer.zip",
+        "sha256": "2a8bf3bcc0459ad9f95084ab137e86b6683c7d022951de5e52b6c27101e637ad",
+        "github_digest": "sha256:2a8bf3bcc0459ad9f95084ab137e86b6683c7d022951de5e52b6c27101e637ad",
+        "asset_id": 545199505
+      },
+      {
+        "name": "ptk-siem-receiver-0.3.0-rc.2-linux-arm64.tar.gz",
+        "sha256": "87841b4a0ae397c6c1038f084492dd152675140942550c1b189f12f4833b3549",
+        "github_digest": "sha256:87841b4a0ae397c6c1038f084492dd152675140942550c1b189f12f4833b3549",
+        "asset_id": 545199490
+      },
+      {
+        "name": "ptk-siem-receiver-0.3.0-rc.2-linux-x64.tar.gz",
+        "sha256": "daad3b5111785dc325581162812f15f0066d23bdcf2f4074f4dc2a813802996e",
+        "github_digest": "sha256:daad3b5111785dc325581162812f15f0066d23bdcf2f4074f4dc2a813802996e",
+        "asset_id": 545199487
+      },
+      {
+        "name": "ptk-siem-receiver-0.3.0-rc.2-osx-arm64.tar.gz",
+        "sha256": "cefc5f1e2f3a3dd69b80e305a71b16e5e79c543608ed35950556f4cbe19cc861",
+        "github_digest": "sha256:cefc5f1e2f3a3dd69b80e305a71b16e5e79c543608ed35950556f4cbe19cc861",
+        "asset_id": 545199493
+      },
+      {
+        "name": "ptk-siem-receiver-0.3.0-rc.2-win-arm64.zip",
+        "sha256": "4e6b0b319ce8764a25013771716d18699e03477e1585eb43513790a4f433f327",
+        "github_digest": "sha256:4e6b0b319ce8764a25013771716d18699e03477e1585eb43513790a4f433f327",
+        "asset_id": 545199466
+      },
+      {
+        "name": "ptk-siem-receiver-0.3.0-rc.2-win-x64.zip",
+        "sha256": "207c1b667002b67be25cd74a2565936d8f62377510e1d13801d583b20860eb73",
+        "github_digest": "sha256:207c1b667002b67be25cd74a2565936d8f62377510e1d13801d583b20860eb73",
+        "asset_id": 545199463
+      },
+      {
+        "name": "SHA256SUMS",
+        "sha256": "d2eca3a5064aa8afe5a2a6b10f68548d7401354e57c9335e9ec2e8762cb5dc46",
+        "github_digest": "sha256:d2eca3a5064aa8afe5a2a6b10f68548d7401354e57c9335e9ec2e8762cb5dc46",
+        "asset_id": 545199506
+      }
+    ],
+    "builds": [
+      {
+        "schema_version": 1,
+        "product": "ptk",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "08dcc86cec5e4cf49f46b761da59ddec",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:05.455Z",
+        "target_rid": "win-x64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk-siem-receiver",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "63cdb86bfa9d4249890d0fd4f50bf555",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:14:48.305Z",
+        "target_rid": "win-x64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "c4c8f03028a244d1a5e9ff57bac28556",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:09.501Z",
+        "target_rid": "win-arm64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk-siem-receiver",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "21b625813ef4409985194d2d651b2b3f",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:14:11.409Z",
+        "target_rid": "win-arm64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "9d2ca9b30e5541adb405f7d14d11215f",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:00.966Z",
+        "target_rid": "linux-x64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk-siem-receiver",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "552aeee052124199b8ed0beacc95b4f7",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:31.728Z",
+        "target_rid": "linux-x64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "d7518e0a289e41a788ac7b02f265605b",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:05.009Z",
+        "target_rid": "linux-arm64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk-siem-receiver",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "aad549eb896a4022bf6694796122cdaf",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:33.276Z",
+        "target_rid": "linux-arm64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "9c537d74da534dc9992713384e0326ce",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:08.306Z",
+        "target_rid": "osx-arm64"
+      },
+      {
+        "schema_version": 1,
+        "product": "ptk-siem-receiver",
+        "product_version": "0.3.0-rc.2",
+        "build_identity": "84696e26606241f5ad50976a5e5d0831",
+        "source_commit": "6ab7040bde61adcf6722830dbb5807ac295ec166",
+        "source_dirty": false,
+        "build_time_utc": "2026-09-05T01:13:31.769Z",
+        "target_rid": "osx-arm64"
+      }
+    ]
+  },
+  "portable_checksum_consumer": {
+    "passed": false,
+    "finding": "rr-8",
+    "command": "shasum -a 256 -c SHA256SUMS",
+    "exit_code": 1,
+    "errors": [
+      "CRLF is retained in four Windows filenames",
+      "Installer entry has one separator space and is improperly formatted"
+    ]
+  },
+  "native_download_runtime": {
+    "verified_rids": [
+      "osx-arm64"
+    ],
+    "mac_checks": 32,
+    "mac_mach_o_files": 34,
+    "apple_notarization_submission": "36773eae-cacf-44da-9031-69da7f35c062",
+    "mac_install_and_uninstall_passed": true,
+    "other_rids_not_run": true
+  },
+  "publication_authorized": false
+}

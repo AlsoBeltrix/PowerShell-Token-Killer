@@ -1,10 +1,17 @@
 # Review status
 
-## rr-7 draft checksum line endings (2026-09-05 UTC)
+## rr-8 portable uploaded checksum manifest (2026-09-05 UTC)
 
-All five native jobs passed, but draft assembly rejected valid Windows CRLF
-checksum entries. The parser repair and mixed-line-ending red/green guard are
-recorded in `.agents/review/findings/rr-7.md`; canonical rerun remains required.
+Downloaded rc.2 hashes/provenance match, but standard checksum tools reject
+the manifest's CRLF and one-space formatting. Future output normalization has
+real-consumer red/green guards; the existing draft is unchanged and a new
+version/run needs owner approval. See `.agents/review/findings/rr-8.md`.
+
+## rr-7 draft checksum input parsing (2026-09-05 UTC)
+
+Closed: canonical run `33935468032` passed all five native jobs and draft
+assembly. The separate output-portability failure is rr-8; see
+`.agents/review/findings/rr-7.md`.
 
 ## rr-6 Windows SIEM deployment permissions (2026-09-05 UTC)
 

@@ -5,15 +5,89 @@
 - Owner authority: 2026-09-04 build/test go, recorded in `.agents/decisions.md`.
   Do not publish, create an explicit tag, close issues, replace the owner's
   installed payload, or stop existing PTK sessions.
-- Current candidate source: `a57ae57583b71bcfe6168428a64d6e05530c0147`.
+- Current candidate source: `6ab7040bde61adcf6722830dbb5807ac295ec166`.
 - Relative to the verified baseline, the candidate includes the `rr-5` staged
   Windows fixture correction and `rr-6` Windows SIEM deployment-permission
   repair. Concurrent unrelated uncommitted harness edits are not included.
-- Current release workflow: [33933424682](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33933424682),
-  dispatched 2026-09-05 at 00:34:29 UTC with version `0.3.0-rc.2`.
-  The run API confirmed the exact source SHA above.
+- Current release workflow: [33935468032](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33935468032),
+  dispatched 2026-09-05 01:12:46 UTC with version `0.3.0-rc.2`. The run API
+  confirmed the exact source SHA above.
 - Before dispatch, no canonical tag or release record used `v0.3.0-rc.2`.
   Existing `v0.3.0-rc.1` records were left untouched.
+
+## Final result: draft built; portable-checksum gate failed
+
+Run `33935468032` passed all five native jobs and draft job `101226565157`
+at clean source `6ab7040`, completing 2026-09-05 01:42:03 UTC. Both Windows
+jobs passed private-ACL lifecycle, signing, staged installation, all 32
+product/Defender checks, and all three packaged SIEM workflows.
+
+Draft `383097364` has exact title `ptk 0.3.0-rc.2`, tag name
+`v0.3.0-rc.2`, target source SHA above, `draft=true`, and
+`published_at=null`. No remote tag ref was created. All twelve assets were
+downloaded fresh and verified: eleven unique archive/installer entries, every
+available GitHub digest (all twelve), safe extraction paths, exact installer
+bundle contents, ten distinct clean source/version/RID/build-time identities,
+and binary/provenance version agreement. Final Mac archives are byte-identical
+to the workflow downloads that passed local runtime/signature checks.
+
+The canonical exact inventory is
+[release-candidate-0.3.0-rc.2.assets.json](release-candidate-0.3.0-rc.2.assets.json).
+Verification root: `/Users/michael/ptk-rc2-candidate4.hOfcTm`; detached
+`source` is clean at the exact candidate commit.
+
+**Do not publish this candidate:** standard
+`shasum -a 256 -c SHA256SUMS` fails on the downloaded manifest. Four Windows
+entries retain CRLF and the installer entry has one separator space. `rr-8`
+records a canonical-output repair for future assemblies; it does not alter this
+draft. The bytes themselves match their hashes. A new version/run requires an
+owner go; rc.3 with the newer harness fix is a recommendation, not a decision.
+
+The disposable verifier initially assumed exactly two spaces, then preserved
+the supported one/two-space input while retaining exact-name/count/hash checks.
+It also initially let PowerShell turn JSON UTC strings into DateTime objects,
+which a second parse interpreted with a local offset. Reading provenance with
+`ConvertFrom-Json -DateKind String` fixed that helper-only failure. The partial
+extraction was moved aside before a fresh extraction; all integrity/provenance
+checks then exited zero. Neither helper correction excuses the separately
+confirmed standard-consumer failure.
+
+### Attempt-four local clean-source and downloaded Mac proof
+
+All six ordinary CI jobs in `33935459185` passed exact source `6ab7040`:
+the PTK and SIEM jobs on Linux, macOS, and Windows.
+
+At clean source `6ab7040`, local Pester passed 113 tests with 3 platform skips;
+the server suite passed 1,360/1,360 and the SIEM suite exited zero. Registration
+handshake, mini-SIEM lifecycle, four-build uniqueness/dirty-source guard,
+release-assembly regression, release-selection and signing-documentation
+helpers, ShellCheck, and actionlint passed. Both dependency scans reported no
+vulnerable packages. The detached verification worktree remained clean.
+
+The fresh Mac download from `33935468032` passed both archive checksums,
+exact clean provenance, all 34 Mach-O strict signatures/Developer ID checks and
+forced online notarization-ticket checks. Apple accepted submission
+`36773eae-cacf-44da-9031-69da7f35c062`.
+
+Current Mac archive hashes and build identities are recorded once in the
+linked machine-readable inventory.
+
+Staged activation and both handshakes passed. Separate actual installation
+into a disposable `.ptk` passed all 32 direct-product checks, including
+packaged uninstall. SIEM package verification and all three operator workflows
+passed; the orchestration exited zero. This is not real external-SIEM
+acceptance. Original installed supervisors 7123 and 7562 remained running.
+Final draft downloads matched these tested Mac archives byte-for-byte.
+
+Concurrent live-install observation, 2026-09-05 around 01:30 UTC: the original
+supervisor PIDs are no longer running. Current supervisors include 89113 and
+90634; the installed provenance now identifies `0.3.0-dev.geff24a5`, source
+`eff24a51c1776c1ee29a6cf270ac04d379c8e57a`, dirty-source flag true, build
+`00de667392f345df8edd16b39dba687d`, built 01:21:26 UTC. This was not performed
+by the candidate build/test work. Do not claim the old live processes remained
+unchanged through final handoff, and do not install this older frozen candidate
+over the newer harness change without an explicit owner ruling. All candidate
+installation/uninstall actions remained confined to the disposable proof home.
 
 ## Attempt-three result: native success; draft assembly failed
 
@@ -170,11 +244,23 @@ brokers. No process was stopped and no installed file was replaced. GitHub
 builds run on separate native runners. Local follow-up must use disposable
 roots and restrict uninstall to the disposable `.ptk` being tested.
 
-## Remaining proof
+## Remaining proof and authority
 
-Follow `.agents/plans/release-readiness.md`'s candidate procedure: completed
-five-RID gates, unpublished draft metadata and exact asset inventory,
-downloaded SHA-256/digest agreement, unique PTK/SIEM provenance, native
-installation/lifecycle and product/SIEM checks, and signing/notarization
-evidence. Record any unperformed check explicitly; source-test success is not
-a substitute for candidate evidence.
+- `rr-8`: a separately authorized new candidate must prove the repaired
+  uploaded manifest with both byte verification and standard checksum tools.
+- Downloaded Windows/Linux archives were integrity/provenance-checked here,
+  but were not installed/uninstalled on matching native hardware. Their
+  packaged activation, runtime, and SIEM workflow checks ran on native CI
+  runners before upload; that is not the same evidence.
+- Independent downloaded Windows Authenticode checks, full candidate-grade
+  public-installer/upgrade/refusal lifecycle across every RID, real
+  cross-account service handoff, and real external-SIEM acceptance remain
+  unperformed. Failed SSH probes to recorded Windows hosts did not modify them.
+- Public security/support policy, final release notes, publication, and live
+  unauthenticated bootstrap smoke retain their explicit gates.
+- The separate `eff24a5` harness fix is newer than the frozen candidate and
+  already appears in the live installation. Include it in any recommended
+  replacement candidate; do not silently downgrade the installed copy.
+- No draft was deleted, no uploaded asset replaced, and nothing was published.
+  Scratch roots and downloaded evidence remain available; the only uninstalls
+  in this task targeted disposable proof homes.

@@ -1,17 +1,18 @@
 # Next PTK prerelease — working release notes
 
-**Status:** NOT PUBLISHABLE. This is the factual content draft for
-`v0.3.0-rc.2`; security/support rulings and exact candidate evidence remain
-unset. Populate the public release from `docs/release-notes-template.md` only
-after every pending field below is proved.
+**Status:** NOT PUBLISHABLE. The `v0.3.0-rc.2` draft built successfully,
+but downloaded standard checksum-tool verification failed (`rr-8`). Its assets
+remain immutable and unpublished. A formatter repair for a future candidate
+does not repair this existing draft. Public security/support rulings and
+remaining native/downloaded lifecycle evidence also remain open.
 
 ## Candidate identity
 
 - Version: `0.3.0-rc.2`, ruled by the owner on 2026-09-04.
 - Supersedes: `0.3.0-rc.1` (`0c8ed87635ef37db548d086ada78a2020c4b390f`).
 - Product delta summarized through: `0c9328a`.
-- Candidate source: `a57ae57583b71bcfe6168428a64d6e05530c0147`.
-- Candidate workflow: `33933424682`; results and asset proof are tracked in
+- Candidate source: `6ab7040bde61adcf6722830dbb5807ac295ec166`.
+- Candidate workflow: `33935468032`; results and asset proof are tracked in
   `.agents/release-candidate-0.3.0-rc.2.md`. Publication remains unauthorized.
 
 ## What changed
@@ -109,19 +110,26 @@ published SHA-256 integrity claim.
 - No package-manager distribution is included. The supported public path is the
   GitHub release installer bundle.
 
-## Pending candidate evidence
+## Candidate evidence and remaining gates
 
-- security-reporting channel and support boundary before a public launch;
-- exact clean source commit and six canonical CI job results;
-- five native RID plus draft-assembly release workflow results;
-- exact draft metadata, twelve-asset inventory, eleven downloaded hashes, and
-  all PTK/SIEM build identities;
-- Windows Authenticode and Defender results;
-- macOS Developer ID and online notarization-ticket results;
-- downloaded-artifact install, upgrade/repair, first invoke, restart, recovery,
-  SIEM workflow, and uninstall results on every RID;
-- exact open limitations, reviewer/finding disposition, withdrawal procedure,
-  and final owner release ruling.
+Exact source, successful six-job CI, all five native release jobs plus draft
+assembly, all twelve downloaded digests, eleven file hashes, ten build
+identities, Windows signing/Defender gates, and downloaded Mac signatures,
+notarization, installation/runtime/SIEM/uninstall proof are recorded in
+`.agents/release-candidate-0.3.0-rc.2.md` and its linked assets inventory.
 
-The unauthenticated bootstrap gets its final live smoke immediately after a
-separately authorized publication. Failure invokes `docs/release-recovery.md`.
+Remaining gates:
+
+- new-version uploaded/downloaded proof of the rr-8 portable-manifest repair;
+- security-reporting channel and support boundary before public launch;
+- independent downloaded Windows Authenticode checks and matching-native
+  downloaded install/upgrade/repair/recovery/uninstall proof on every RID;
+- real external-SIEM and cross-account service acceptance;
+- exact limitations, final release notes, withdrawal procedure, and owner
+  release ruling.
+
+The separate `eff24a5` harness fix is not included in rc.2. A new unpublished
+candidate including it and the checksum formatter requires an owner-approved
+version/run. Do not overwrite this draft or downgrade the live development copy.
+The unauthenticated bootstrap gets its final live smoke immediately after
+separately authorized publication; failure invokes `docs/release-recovery.md`.

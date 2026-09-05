@@ -1,6 +1,6 @@
 # Plan: Global release readiness
 
-**Status:** UNPUBLISHED CANDIDATE BUILD AUTHORIZED — on 2026-09-04 the owner
+**Status:** UNPUBLISHED RC.2 BUILT; HELD AFTER DOWNLOAD CHECKS — on 2026-09-04
 approved building and testing `0.3.0-rc.2` without publication. The canonical
 five-RID workflow and its unpublished draft are in scope. Leave live PTK
 sessions and installed payloads untouched. Commits follow
@@ -65,7 +65,7 @@ without violating release immutability. Finding: `.agents/review/findings/rr-5.m
 | 3. Build identity and provenance | **COMPLETE locally** | `4c636fe` plus `ec3034b`: four-build uniqueness/dirty detection and clean PTK/SIEM package provenance passed. |
 | 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, factual privacy posture, and version `0.3.0-rc.2` are settled or implemented. Security reporting, support, and final publication remain owner gates. |
 | 5. Build distribution path | **COMPLETE locally** | Transactional installer/package path plus `fa3d476` immutable release assembly and `be05b29` checksum-verified standalone bootstrap. |
-| 6. Validate exact candidate | **IN PROGRESS** | Current authorized run `33933424682` builds exact clean source `a57ae57` after `rr-5` fixture and `rr-6` Windows SIEM permission repairs. Candidate-specific results and remaining download/native evidence live in `.agents/release-candidate-0.3.0-rc.2.md`; earlier attempts remain supporting evidence only. |
+| 6. Validate the exact candidate | **PARTIAL / HOLD** | Source `6ab7040` passed six-job CI `33935459185` and all six release jobs in `33935468032`. Draft `383097364` has verified downloaded hashes/identities and Mac runtime proof, but its manifest fails standard checksum tools (`rr-8`). Future formatter repair does not change that immutable draft. New version/run and remaining native/downloaded evidence require the recorded gates; see `.agents/release-candidate-0.3.0-rc.2.md`. |
 | 7. Prepare public operations | **PARTIAL** | `c55169f` adds privacy, limitations, contribution/community templates, release notes, and withdrawal recovery. Security reporting and support boundary await owner policy. |
 | 8. Final owner gate | **NOT STARTED** | Requires one exact candidate recommendation after items 1–7 close; tag and publish remain separately authorized actions. |
 

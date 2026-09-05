@@ -5,26 +5,29 @@ short and update it when important repo facts change.
 
 ## Now
 
-**Unpublished candidate build/test is authorized (2026-09-04).** The owner is
-the only current user and approved building and testing `0.3.0-rc.2` without
-publishing. Use the canonical five-RID workflow and disposable verification
-roots; do not replace the live installation or stop its running sessions.
-Security/support decisions are deferred for this pass, not adopted or waived
-for a future public launch. Scope: `.agents/decisions.md`.
+**Unpublished rc.2 was built and tested; final checks found a packaging blocker.**
+Source `6ab7040` passed all six CI jobs (`33935459185`) and all five native
+release jobs plus draft assembly (`33935468032`). Draft `383097364` remains
+unpublished. All 12 downloaded asset digests, 11 archive/installer hashes, and
+10 unique clean build identities match. Downloaded Mac signatures/notarization,
+isolated installation, 32 checks, SIEM workflows, and uninstall passed.
 
-Candidate run `33933424682` at clean source `a57ae57` passed all five
-native builds, including signed Windows installation, 32-check product/Defender
-proof, and all packaged SIEM workflows. The downloaded Mac candidate also
-passed signatures/notarization, isolated installation, 32 checks, SIEM
-workflows, and actual uninstall. This closes `rr-6`; `rr-5` was already closed.
-The final draft job failed before creating any release because the assembler
-rejected valid Windows CRLF checksum entries (`rr-7`). A two-line parser
-repair now passes a new mixed-line-ending regression and malformed/tampered
-entry refusals; temporary reversion reproduces the exact exit-66 failure.
-A fresh canonical release run and its exact downloaded-asset proof remain
-required. Candidate history and evidence are canonical in
-`.agents/release-candidate-0.3.0-rc.2.md`. The live installation and its running
-sessions remain untouched. Concurrent unrelated harness edits are excluded.
+The uploaded checksum list fails standard checksum tools because it retains
+Windows CRLF and a one-space installer entry (`rr-8`). The future assembler
+repair canonicalizes only already-verified entries to LF/two-space format;
+real GNU/Perl consumer guards have red/green and temporary-revert proof.
+Do not replace the immutable rc.2 draft. A new version/run needs explicit owner
+approval; recommendation: unpublished rc.3 including this repair and the newer
+`eff24a5` harness fix. This recommendation is not an adopted version decision.
+`rr-5`, `rr-6`, and `rr-7` are closed.
+
+Candidate evidence and remaining native/public-launch gaps are canonical in
+`.agents/release-candidate-0.3.0-rc.2.md`, with machine-readable hashes and
+identities in its linked assets JSON. Tests stayed in disposable roots.
+The live installation changed separately to development build `eff24a5`;
+do not install the older frozen candidate over it without an owner ruling.
+No publication, explicit tag creation, issue closure, draft replacement, or
+live-install change was performed by this candidate task.
 
 **Canonical `master` contains verified product commit `0c9328a`; its exact
 product tree is green in CI.** Run `33924847924` at `72ccd90` passed all six
@@ -79,9 +82,10 @@ and uninstall proof.
 
 ## Next
 
-- Build and verify the authorized `0.3.0-rc.2` five-RID unpublished candidate
-  from a clean canonical commit. Record the run, exact source SHA, downloaded
-  hashes/provenance, native test results, and any remaining evidence gaps.
+- Obtain a go for a new unpublished candidate version/run. Recommend rc.3
+  with the portable-checksum formatter and newer harness fix; leave rc.2 and
+  the live installation intact. Security/support policies remain separate
+  prerequisites for a future public launch, not adopted by this test pass.
 - Close canonical GitHub #30 only under its separate outward-action gate.
   Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.

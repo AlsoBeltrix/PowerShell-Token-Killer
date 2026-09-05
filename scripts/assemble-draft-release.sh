@@ -71,6 +71,7 @@ manifest_entry_count=$(awk '{ sub(/\r$/, "") } NF { count += 1 } END { print cou
   exit 66
 }
 
+canonical_manifest_entries=()
 for asset in "${required_assets[@]}"; do
   name=${asset##*/}
   recorded_hashes=$(awk -v name="$name" '{ sub(/\r$/, "") } NF == 2 && $2 == name { print $1 }' \
@@ -87,6 +88,7 @@ for asset in "${required_assets[@]}"; do
     echo "SHA256SUMS hash does not match '$name'" >&2
     exit 65
   }
+  canonical_manifest_entries+=("$actual_hash  $name")
 done
 
 # A release record is the immutability boundary, including drafts. Query the
@@ -102,6 +104,9 @@ if [[ -n "$existing_release_ids" ]]; then
   exit 73
 fi
 
+# Native checksum inputs can use CRLF or one separator space. Upload one
+# portable manifest only after every input entry/hash and immutability guard pass.
+printf '%s\n' "${canonical_manifest_entries[@]}" > "$asset_dir/SHA256SUMS"
 assets=("${required_assets[@]}" "$asset_dir/SHA256SUMS")
 
 gh release create "$tag" \

@@ -26,6 +26,38 @@ sha256_file() {
   fi
 }
 
+# Each available standard consumer must verify all eleven files, not silently
+# skip malformed lines. GNU sha256sum and Perl shasum differ on one-space input.
+verify_checksum_consumer() {
+  local checksum_consumer
+  local consumer_found=false
+  for checksum_consumer in sha256sum shasum; do
+    command -v "$checksum_consumer" >/dev/null 2>&1 || continue
+    consumer_found=true
+    if ! (
+      cd "$work/assets"
+      if [[ "$checksum_consumer" == sha256sum ]]; then
+        LC_ALL=C sha256sum -c SHA256SUMS
+      else
+        LC_ALL=C shasum -a 256 -c SHA256SUMS
+      fi
+    ) > "$work/checksum-consumer.log" 2>&1; then
+      cat "$work/checksum-consumer.log" >&2
+      echo "$checksum_consumer rejected the assembled manifest" >&2
+      return 1
+    fi
+    if [[ $(grep -c ': OK$' "$work/checksum-consumer.log") -ne 11 ]]; then
+      cat "$work/checksum-consumer.log" >&2
+      echo "$checksum_consumer did not verify all eleven assets" >&2
+      return 1
+    fi
+  done
+  [[ "$consumer_found" == true ]] || {
+    echo 'no standard checksum consumer available' >&2
+    return 1
+  }
+}
+
 repo_root=$(cd "$(dirname "$0")/.." && pwd)
 workflow="$repo_root/.github/workflows/release.yml"
 helper="$repo_root/scripts/assemble-draft-release.sh"
@@ -159,6 +191,7 @@ PTK_GH_MODE=absent PTK_GH_LOG="$log" \
     v9.8.7-test 9.8.7-test "$sha" "$work/assets"
 grep -Fq 'api --paginate repos/AlsoBeltrix/PowerShell-Token-Killer/releases?per_page=100' "$log"
 grep -Fq 'release create v9.8.7-test' "$log"
+verify_checksum_consumer
 if grep -Fq 'unexpected.txt' "$log"; then
   echo 'draft assembler included an unvalidated extra asset' >&2
   exit 1
@@ -202,6 +235,7 @@ PTK_GH_MODE=absent PTK_GH_LOG="$log" \
   bash "$helper" AlsoBeltrix/PowerShell-Token-Killer \
   v9.8.7-test 9.8.7-test "$sha" "$work/assets"
 grep -Fq 'release create v9.8.7-test' "$log"
+verify_checksum_consumer
 
 for invalid_case in wrong-hash duplicate-name embedded-cr; do
   case "$invalid_case" in

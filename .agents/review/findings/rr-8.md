@@ -1,0 +1,54 @@
+# rr-8: Uploaded checksum manifest is not portable
+
+**Severity:** HIGH — standard checksum-tool verification fails on the draft.
+**Status:** FIXED LOCALLY for future assemblies; existing draft remains affected.
+**Scope:** `scripts/assemble-draft-release.sh` and its shell regression suite.
+
+All six release jobs in `33935468032` passed source `6ab7040` and created
+unpublished draft `383097364`, `v0.3.0-rc.2`. Downloaded `SHA256SUMS` retains
+CRLF on the four Windows archive entries and one separator space on the
+installer entry. macOS `shasum -a 256 -c SHA256SUMS` exits 1: it treats CR as
+part of each Windows filename and reports one improperly formatted line.
+
+This differs from `rr-7`: that fix makes the assembler correctly read native
+checksum files, but it does not normalize the manifest it subsequently uploads.
+The PowerShell installer parses whitespace and removes line endings, so this
+is not evidence of corrupt archives or a failed installer hash comparison.
+Independent full byte/provenance verification remains separately recorded in
+`.agents/release-candidate-0.3.0-rc.2.md`.
+
+Under standing known-broken repair authority, after verifying the exact input
+inventory and every archive hash, emit a canonical SHA256SUMS with LF endings
+and two spaces between hash and filename. Preserve all existing hash, name,
+repository, immutability, and API-failure guards. Add a real standard checksum
+consumer assertion for both LF and mixed native manifests; prove red/green
+and temporary-revert failure before closure.
+
+Do not change draft `383097364`, replace its manifest, delete it, create a tag,
+publish it, or choose a new candidate version without an explicit owner go.
+The repaired formatter can land, but exact uploaded/downloaded integration
+proof requires a separately authorized new version/run. The newer harness fix
+already installed at `eff24a5` is not present in this frozen rc.2 candidate.
+
+## Repair and proof
+
+The assembler now accumulates canonical entries only after each input hash
+matches the actual archive. After all inventory/hash and existing-release/API
+guards pass, it emits exactly eleven LF-terminated lines with lowercase hashes
+and two separator spaces. No archived product bytes are changed.
+
+Regression tests execute every available GNU `sha256sum` and Perl `shasum`
+consumer and require eleven successful file checks, on both ordinary LF and
+mixed native manifests. Before repair, GNU rejected CR-bearing Windows names;
+Perl additionally skipped the malformed one-space installer entry. The guards
+pass after repair, fail when it is temporarily reverted, and pass after
+restoration. Existing wrong-hash, duplicate-name, embedded-CR, inventory,
+extra-asset, immutable-release, and failed-API checks remain green. ShellCheck,
+actionlint, and `git diff --check` pass.
+
+Independent downloaded verification of rc.2 succeeded for all twelve GitHub
+digests, eleven archive/installer hashes, safe extraction, exact bundle files,
+ten unique clean build identities, and binary version agreement. This proves
+the package bytes; it does not excuse its nonportable uploaded checksum list.
+The uploaded manifest and draft were not modified. Closure still requires a
+new explicitly authorized candidate and its standard-consumer download proof.

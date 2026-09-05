@@ -135,10 +135,51 @@ function Resolve-FullPath {
     return [IO.Path]::GetFullPath($Path)
 }
 
+function Set-WindowsPrivatePathAcl {
+    param(
+        [string]$Path,
+        [Security.Principal.SecurityIdentifier]$OwnerSid,
+        [switch]$OwnerAlreadySet
+    )
+    if ($null -eq $OwnerSid) {
+        $OwnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    }
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Private permissions refuse a link or reparse point: '$Path'."
+    }
+    $security = if ($item.PSIsContainer) {
+        [Security.AccessControl.DirectorySecurity]::new()
+    } else {
+        [Security.AccessControl.FileSecurity]::new()
+    }
+    if ($OwnerAlreadySet) {
+        $existing = [IO.FileSystemAclExtensions]::GetAccessControl($item)
+        if (-not $OwnerSid.Equals($existing.GetOwner(
+                    [Security.Principal.SecurityIdentifier]))) {
+            throw "Private path ownership did not reach the service identity: '$Path'."
+        }
+    } else {
+        $security.SetOwner($OwnerSid)
+    }
+    # Match receiver admission exactly: one owner-only, non-inheriting ACE.
+    # Each private child is protected explicitly after it is created.
+    $security.SetAccessRuleProtection($true, $false)
+    $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            $OwnerSid,
+            [Security.AccessControl.FileSystemRights]::FullControl,
+            [Security.AccessControl.InheritanceFlags]::None,
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow))
+    [IO.FileSystemAclExtensions]::SetAccessControl($item, $security)
+}
+
 function Set-PrivateDirectory {
     param([string]$Path)
     [void](New-Item -ItemType Directory -Path $Path -Force)
-    if (-not $IsWindows) {
+    if ($IsWindows) {
+        Set-WindowsPrivatePathAcl $Path
+    } else {
         [IO.File]::SetUnixFileMode(
             $Path,
             [IO.UnixFileMode]::UserRead -bor
@@ -149,7 +190,9 @@ function Set-PrivateDirectory {
 
 function Set-PrivateFile {
     param([string]$Path)
-    if (-not $IsWindows) {
+    if ($IsWindows) {
+        Set-WindowsPrivatePathAcl $Path
+    } else {
         [IO.File]::SetUnixFileMode(
             $Path,
             [IO.UnixFileMode]::UserRead -bor
@@ -224,12 +267,30 @@ function Set-ServicePathOwner {
     }
     if ($IsWindows) {
         $aclIdentity = Resolve-WindowsAclIdentity $ServiceIdentity
+        $ownerSid = if ($aclIdentity.StartsWith('*S-', [StringComparison]::Ordinal)) {
+            [Security.Principal.SecurityIdentifier]::new($aclIdentity.Substring(1))
+        } else {
+            [Security.Principal.NTAccount]::new($aclIdentity).Translate(
+                [Security.Principal.SecurityIdentifier])
+        }
         foreach ($path in $Paths) {
-            & icacls.exe $path /setowner $aclIdentity /T /C | Out-Host
-            if ($LASTEXITCODE -ne 0) { throw "Could not set service ownership on '$path'." }
-            & icacls.exe $path /inheritance:r /grant:r "${aclIdentity}:(OI)(CI)F" /T /C |
-                Out-Host
-            if ($LASTEXITCODE -ne 0) { throw "Could not protect service path '$path'." }
+            $items = @((Get-Item -LiteralPath $path -Force)) + @(
+                Get-ChildItem -LiteralPath $path -Recurse -Force)
+            foreach ($item in $items) {
+                if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "Service ownership refuses a link or reparse point: '$($item.FullName)'."
+                }
+            }
+            # Transfer children before parents, while the installer can still
+            # traverse them. icacls handles the authorized owner reassignment;
+            # replace the DACL separately without adding inheritable/extra ACEs.
+            foreach ($item in $items | Sort-Object { $_.FullName.Length } -Descending) {
+                & icacls.exe $item.FullName /setowner $aclIdentity /C | Out-Host
+                if ($LASTEXITCODE -ne 0) {
+                    throw "Could not set service ownership on '$($item.FullName)'."
+                }
+                Set-WindowsPrivatePathAcl -Path $item.FullName -OwnerSid $ownerSid -OwnerAlreadySet
+            }
         }
     } else {
         foreach ($path in $Paths) {

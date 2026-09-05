@@ -23,7 +23,9 @@ SIEM, transaction, and staged-install checks all passed after the repair.
 Both rebuilt Linux jobs and macOS passed. Downloaded rebuilt Mac archives passed
 all 34 signature/online-ticket checks, 32-check installed-product/uninstall
 proof, and SIEM workflows. The Windows SIEM deployment-permissions defect now
-needs repair before another clean candidate build. Independent six-job CI
+is repaired locally under `rr-6`: native guard-only CI `33932859920` failed on
+the generated config directory before the fix; Windows green proof must pass
+before another clean candidate build. Independent six-job CI
 `33930834519` passed on the same product/test tree.
 Attempt-one downloaded Mac proof and independent
 green six-job CI `33929388848` do not replace the rebuilt candidate's evidence.

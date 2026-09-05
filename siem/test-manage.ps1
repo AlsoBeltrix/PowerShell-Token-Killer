@@ -238,6 +238,37 @@ try {
         }
         finally { [IO.FileSystemAclExtensions]::SetAccessControl($configFile, $originalSecurity) }
         Assert-True $extraReaderRejected 'Windows ACL guard accepted an extra reader.'
+
+        # Exercise the handoff path without taking files away from the test
+        # account: Windows resolves differently-cased account names to one SID.
+        foreach ($functionName in 'Set-WindowsPrivatePathAcl','Set-ServicePathOwner') {
+            $functionAst = $managerAst.Find({
+                    param($node)
+                    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+                        $node.Name -ceq $functionName
+                }, $true)
+            Assert-True ($null -ne $functionAst) "Manager function missing: $functionName"
+            . ([scriptblock]::Create($functionAst.Extent.Text))
+        }
+        $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $ServiceIdentity = if ($currentIdentity -cne $currentIdentity.ToUpperInvariant()) {
+            $currentIdentity.ToUpperInvariant()
+        } else { $currentIdentity.ToLowerInvariant() }
+        $handoffRoot = Join-Path $root 'same-sid-handoff'
+        $nestedHandoff = Join-Path $handoffRoot 'nested'
+        New-Item -ItemType Directory -Path $nestedHandoff -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $nestedHandoff 'secret.txt') -Value 'fixture'
+        $ApplyServiceIdentityOwnership = $false
+        $handoffRefused = $false
+        try { Set-ServicePathOwner @($handoffRoot) }
+        catch { $handoffRefused = $_.Exception.Message -match 'ApplyServiceIdentityOwnership' }
+        Assert-True $handoffRefused 'Service ownership handoff omitted its explicit consent gate.'
+        $ApplyServiceIdentityOwnership = $true
+        Set-ServicePathOwner @($handoffRoot)
+        foreach ($path in @($handoffRoot) + @(
+                Get-ChildItem -LiteralPath $handoffRoot -Recurse -Force | ForEach-Object FullName)) {
+            Assert-WindowsPrivatePath $path
+        }
         Write-Host 'WINDOWS PRIVATE DEPLOYMENT ACL TEST PASSED'
     }
     Assert-True (-not $manifest.anchored) 'Manifest default implied anchored deployment.'

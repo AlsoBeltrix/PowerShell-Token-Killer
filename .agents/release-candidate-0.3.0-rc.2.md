@@ -15,17 +15,23 @@
 - Before dispatch, no canonical tag or release record used `v0.3.0-rc.2`.
   Existing `v0.3.0-rc.1` records were left untouched.
 
-## Evidence status
+## Attempt-three result: native success; draft assembly failed
 
-Attempt three is running on all five native RIDs. The new Windows lifecycle
-guard failed on the original permissions (`8ff9949`, job `101214936893` in
-`33932859920`), then passed with `a57ae57` in job `101215931624` of CI
-`33933206344`. That Windows job passed all 357 receiver tests, exact owner/DACL
-checks, extra-reader rejection, same-SID handoff/consent checks, lifecycle, and
-native receiver packaging. Mac and Linux SIEM jobs also passed. Final signed
-candidate and independent download checks are still required. All six jobs of
-CI `33933206344` subsequently passed at exact source `a57ae57`. Attempt-three
-scratch root: `/Users/michael/ptk-rc2-candidate3.2URb1u`.
+Run `33933424682` at `a57ae57` completed with all five native jobs successful.
+Both Windows jobs passed signing, staged-install activation, all 32
+product/Defender checks, and all three packaged SIEM workflows. This is exact
+signed-package green evidence for `rr-6`, now closed. All six ordinary CI jobs
+in `33933206344` also passed this source.
+
+Draft job `101221277126` failed before GitHub mutation because its checksum
+parser retained the carriage return in native Windows CRLF checksum files.
+Downloaded win-x64 checksum bytes confirm `0D-0A` line endings. Finding
+`rr-7` records the narrowly scoped repair and red/green guard. No
+`v0.3.0-rc.2` draft or tag was created. A fresh canonical workflow and fresh
+downloaded-package identities are required before candidate completion.
+
+Attempt-three scratch root: `/Users/michael/ptk-rc2-candidate3.2URb1u`. The
+Mac proof below belongs only to attempt three.
 
 ## Attempt-three downloaded macOS ARM64 proof
 

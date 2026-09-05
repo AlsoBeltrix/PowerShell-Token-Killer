@@ -1,16 +1,20 @@
 # Review status
 
+## rr-7 draft checksum line endings (2026-09-05 UTC)
+
+All five native jobs passed, but draft assembly rejected valid Windows CRLF
+checksum entries. The parser repair and mixed-line-ending red/green guard are
+recorded in `.agents/review/findings/rr-7.md`; canonical rerun remains required.
+
 ## rr-6 Windows SIEM deployment permissions (2026-09-05 UTC)
 
-The rebuilt candidate exposed omitted Windows private-permission setup in the
-SIEM manager. The receiver correctly refused its generated configuration. A
-lifecycle guard is added before repair; see `.agents/review/findings/rr-6.md`.
+Closed: native CI and both signed Windows candidate jobs pass the private-ACL
+guard and packaged SIEM workflows. See `.agents/review/findings/rr-6.md`.
 
 ## rr-5 packaged-install Windows fixture (2026-09-04)
 
-Candidate run `33928685705` exposed a wrong-owner disposable fixture on both
-Windows RIDs. The test-only setup repair preserves production's ownership
-refusal; native rerun remains required. Evidence: `.agents/review/findings/rr-5.md`.
+Closed: both Windows candidates pass activation with the test-only owner fix;
+production ownership refusal remains intact. See `.agents/review/findings/rr-5.md`.
 
 ## i30-1 stream retention repair (2026-09-04)
 

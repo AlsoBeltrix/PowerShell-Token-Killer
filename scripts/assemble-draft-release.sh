@@ -64,7 +64,7 @@ installer_bundle="$asset_dir/ptk-installer.zip"
 }
 required_assets+=("$installer_bundle")
 
-manifest_entry_count=$(awk 'NF { count += 1 } END { print count + 0 }' \
+manifest_entry_count=$(awk '{ sub(/\r$/, "") } NF { count += 1 } END { print count + 0 }' \
   "$asset_dir/SHA256SUMS")
 [[ "$manifest_entry_count" == "${#required_assets[@]}" ]] || {
   echo "SHA256SUMS must contain exactly ${#required_assets[@]} entries; found $manifest_entry_count" >&2
@@ -73,7 +73,7 @@ manifest_entry_count=$(awk 'NF { count += 1 } END { print count + 0 }' \
 
 for asset in "${required_assets[@]}"; do
   name=${asset##*/}
-  recorded_hashes=$(awk -v name="$name" 'NF == 2 && $2 == name { print $1 }' \
+  recorded_hashes=$(awk -v name="$name" '{ sub(/\r$/, "") } NF == 2 && $2 == name { print $1 }' \
     "$asset_dir/SHA256SUMS")
   recorded_count=$(printf '%s\n' "$recorded_hashes" | \
     awk 'NF { count += 1 } END { print count + 0 }')

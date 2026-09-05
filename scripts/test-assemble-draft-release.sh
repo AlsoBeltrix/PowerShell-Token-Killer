@@ -193,4 +193,45 @@ if grep -Eq 'release (create|upload)' "$log"; then
   exit 1
 fi
 
+# Native Windows checksum files use CRLF; the assembled manifest mixes them
+# with Unix LF entries. Only line endings are normalized, never names or hashes.
+awk '/-win-(x64|arm64)\.zip$/ { printf "%s\r\n", $0; next } { print }' \
+  "$work/SHA256SUMS.good" > "$work/assets/SHA256SUMS"
+: > "$log"
+PTK_GH_MODE=absent PTK_GH_LOG="$log" \
+  bash "$helper" AlsoBeltrix/PowerShell-Token-Killer \
+  v9.8.7-test 9.8.7-test "$sha" "$work/assets"
+grep -Fq 'release create v9.8.7-test' "$log"
+
+for invalid_case in wrong-hash duplicate-name embedded-cr; do
+  case "$invalid_case" in
+    wrong-hash)
+      awk '$2 == "ptk-9.8.7-test-win-x64.zip" {
+        printf "%064d  %s\r\n", 0, $2; next
+      } { print }' "$work/SHA256SUMS.good" > "$work/assets/SHA256SUMS"
+      ;;
+    duplicate-name)
+      awk '$2 == "ptk-siem-receiver-9.8.7-test-win-x64.zip" {
+        printf "%s  ptk-9.8.7-test-win-x64.zip\r\n", $1; next
+      } { print }' "$work/SHA256SUMS.good" > "$work/assets/SHA256SUMS"
+      ;;
+    embedded-cr)
+      awk '$2 == "ptk-9.8.7-test-win-x64.zip" {
+        printf "%s  ptk-9.8.7-test-win-\rx64.zip\r\n", $1; next
+      } { print }' "$work/SHA256SUMS.good" > "$work/assets/SHA256SUMS"
+      ;;
+  esac
+  : > "$log"
+  if PTK_GH_MODE=absent PTK_GH_LOG="$log" \
+    bash "$helper" AlsoBeltrix/PowerShell-Token-Killer \
+    v9.8.7-test 9.8.7-test "$sha" "$work/assets"; then
+    echo "draft assembler accepted invalid Windows checksum: $invalid_case" >&2
+    exit 1
+  fi
+  [[ ! -s "$log" ]] || {
+    echo "invalid Windows checksum reached GitHub CLI: $invalid_case" >&2
+    exit 1
+  }
+done
+
 echo 'Draft release immutability tests passed.'

@@ -12,18 +12,19 @@ roots; do not replace the live installation or stop its running sessions.
 Security/support decisions are deferred for this pass, not adopted or waived
 for a future public launch. Scope: `.agents/decisions.md`.
 
-Current candidate source `a57ae57583b71bcfe6168428a64d6e05530c0147` has green
-six-job CI `33933206344`. Signed-candidate run `33933424682` builds that exact
-commit, excluding unrelated concurrent uncommitted harness edits. Both Linux
-jobs and macOS passed; Windows signing and final downloads remain. Downloaded
-Mac verification is running against the current candidate's new identities.
-
-Two earlier candidate attempts created no draft: `rr-5` fixed a Windows test
-fixture owner, and `rr-6` repaired missing Windows SIEM private permissions.
-The fixture has native Windows packaged red/green proof. The SIEM repair has
-native lifecycle/ACL red/green proof and awaits the current signed-package
-workflow. Attempt history, hashes, exact identities, and remaining checks are
-canonical in `.agents/release-candidate-0.3.0-rc.2.md`.
+Candidate run `33933424682` at clean source `a57ae57` passed all five
+native builds, including signed Windows installation, 32-check product/Defender
+proof, and all packaged SIEM workflows. The downloaded Mac candidate also
+passed signatures/notarization, isolated installation, 32 checks, SIEM
+workflows, and actual uninstall. This closes `rr-6`; `rr-5` was already closed.
+The final draft job failed before creating any release because the assembler
+rejected valid Windows CRLF checksum entries (`rr-7`). A two-line parser
+repair now passes a new mixed-line-ending regression and malformed/tampered
+entry refusals; temporary reversion reproduces the exact exit-66 failure.
+A fresh canonical release run and its exact downloaded-asset proof remain
+required. Candidate history and evidence are canonical in
+`.agents/release-candidate-0.3.0-rc.2.md`. The live installation and its running
+sessions remain untouched. Concurrent unrelated harness edits are excluded.
 
 **Canonical `master` contains verified product commit `0c9328a`; its exact
 product tree is green in CI.** Run `33924847924` at `72ccd90` passed all six

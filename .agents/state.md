@@ -5,6 +5,13 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Handoff checkpoint as of `2fa49d9`:** the checksum-only correction is complete,
+verified, committed, and pushed. No candidate build or local proof remains in
+flight; the working tree was clean before this bookkeeping snapshot. Resume
+from the candidate evidence linked below, without rebuilding rc.2 or repeating
+completed Mac/download checks. The draft remains unpublished; this is not a
+public-release or live-install go.
+
 **Unpublished rc.2 checksum correction is complete and verified.**
 The owner explicitly approved correcting only `SHA256SUMS` on the existing
 draft. Version `0.3.0-rc.2`, draft `383097364`, source `6ab7040`, and all
@@ -81,10 +88,12 @@ and uninstall proof.
 
 ## Next
 
-- Keep corrected rc.2 unpublished and finish the remaining matching-native
-  downloaded-package checks before a public-release recommendation. Publication,
-  live installation, and any replacement candidate incorporating the newer
-  harness fix retain separate owner gates; rc.3 is not an adopted decision.
+- Next session: identify an available matching-native Windows/Linux test host
+  and continue the remaining downloaded-package installation/lifecycle and
+  Windows signature checks listed in the candidate record. Keep corrected
+  rc.2 unpublished. Publication, live installation, and any replacement
+  candidate incorporating the newer harness fix retain separate owner gates;
+  rc.3 is not an adopted decision.
 - Close canonical GitHub #30 only under its separate outward-action gate.
   Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.

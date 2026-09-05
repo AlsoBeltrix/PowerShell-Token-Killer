@@ -1,7 +1,7 @@
 # rr-8: Uploaded checksum manifest is not portable
 
 **Severity:** HIGH — standard checksum-tool verification fails on the draft.
-**Status:** FIXED LOCALLY for future assemblies; existing draft remains affected.
+**Status:** CLOSED — owner-authorized draft correction passes fresh download checks.
 **Scope:** `scripts/assemble-draft-release.sh` and its shell regression suite.
 
 All six release jobs in `33935468032` passed source `6ab7040` and created
@@ -24,11 +24,12 @@ repository, immutability, and API-failure guards. Add a real standard checksum
 consumer assertion for both LF and mixed native manifests; prove red/green
 and temporary-revert failure before closure.
 
-Do not change draft `383097364`, replace its manifest, delete it, create a tag,
-publish it, or choose a new candidate version without an explicit owner go.
-The repaired formatter can land, but exact uploaded/downloaded integration
-proof requires a separately authorized new version/run. The newer harness fix
-already installed at `eff24a5` is not present in this frozen rc.2 candidate.
+The initial handoff withheld draft mutation pending explicit owner approval.
+The owner subsequently approved correcting the unpublished rc.2 checksum list
+without rebuilding or replacing its binaries. That one-off exception is
+canonical in `.agents/release-candidate-0.3.0-rc.2.md`. It does not authorize
+publication, a source/tag change, live installation, or inclusion of the newer
+`eff24a5` harness fix, and does not relax the standing immutability rule.
 
 ## Repair and proof
 
@@ -48,7 +49,14 @@ actionlint, and `git diff --check` pass.
 
 Independent downloaded verification of rc.2 succeeded for all twelve GitHub
 digests, eleven archive/installer hashes, safe extraction, exact bundle files,
-ten unique clean build identities, and binary version agreement. This proves
-the package bytes; it does not excuse its nonportable uploaded checksum list.
-The uploaded manifest and draft were not modified. Closure still requires a
-new explicitly authorized candidate and its standard-consumer download proof.
+ten unique clean build identities, and binary version agreement.
+
+After explicit owner approval, only the draft's checksum asset was replaced
+with LF/two-space canonical output. Its original bytes and metadata were
+preserved. Fresh downloads passed GNU `sha256sum` and Perl `shasum`, each
+checking all eleven files, plus the complete twelve-digest/ten-identity proof.
+Every archive asset ID, size, and digest remained unchanged. Draft `383097364`
+is still unpublished at the same source and tag name, and no tag ref was
+created. Exact before/after checksum identities are in the canonical candidate
+assets inventory. The formatter repair at `ac90719` also passed all six CI
+jobs in `33937538564`. No packaging check remains open for this finding.

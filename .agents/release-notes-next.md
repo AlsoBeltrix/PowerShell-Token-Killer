@@ -1,10 +1,11 @@
 # Next PTK prerelease — working release notes
 
-**Status:** NOT PUBLISHABLE. The `v0.3.0-rc.2` draft built successfully,
-but downloaded standard checksum-tool verification failed (`rr-8`). Its assets
-remain immutable and unpublished. A formatter repair for a future candidate
-does not repair this existing draft. Public security/support rulings and
-remaining native/downloaded lifecycle evidence also remain open.
+**Status:** NOT PUBLISHABLE until the remaining public-launch gates close.
+The rc.2 checksum-format defect (`rr-8`) is resolved by an explicit
+owner-authorized checksum-only correction to the unpublished draft. Both
+standard checksum tools and the full fresh-download verifier pass; all eleven
+package archives remain unchanged. Public security/support rulings and
+remaining native/downloaded lifecycle evidence are still open.
 
 ## Candidate identity
 
@@ -118,9 +119,11 @@ identities, Windows signing/Defender gates, and downloaded Mac signatures,
 notarization, installation/runtime/SIEM/uninstall proof are recorded in
 `.agents/release-candidate-0.3.0-rc.2.md` and its linked assets inventory.
 
+The owner-authorized checksum-only correction closed rr-8 with fresh downloaded
+GNU/Perl checks and the complete inventory/provenance verifier.
+
 Remaining gates:
 
-- new-version uploaded/downloaded proof of the rr-8 portable-manifest repair;
 - security-reporting channel and support boundary before public launch;
 - independent downloaded Windows Authenticode checks and matching-native
   downloaded install/upgrade/repair/recovery/uninstall proof on every RID;
@@ -128,8 +131,10 @@ Remaining gates:
 - exact limitations, final release notes, withdrawal procedure, and owner
   release ruling.
 
-The separate `eff24a5` harness fix is not included in rc.2. A new unpublished
-candidate including it and the checksum formatter requires an owner-approved
-version/run. Do not overwrite this draft or downgrade the live development copy.
-The unauthenticated bootstrap gets its final live smoke immediately after
-separately authorized publication; failure invokes `docs/release-recovery.md`.
+The separate `eff24a5` harness fix is not included in rc.2. Correcting the
+checksum asset did not change that frozen source or authorize a live install.
+Any future candidate incorporating the newer fix needs its own version/run
+go; no rc.3 decision has been adopted. No additional asset replacement is
+authorized. The unauthenticated bootstrap gets its final live smoke immediately
+after separately authorized publication; failure invokes
+`docs/release-recovery.md`.

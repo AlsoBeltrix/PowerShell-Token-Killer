@@ -2,10 +2,11 @@
 
 ## rr-8 portable uploaded checksum manifest (2026-09-05 UTC)
 
-Downloaded rc.2 hashes/provenance match, but standard checksum tools reject
-the manifest's CRLF and one-space formatting. Future output normalization has
-real-consumer red/green guards; the existing draft is unchanged and a new
-version/run needs owner approval. See `.agents/review/findings/rr-8.md`.
+Closed: after explicit owner approval, only the unpublished rc.2 checksum
+asset was corrected. Fresh GNU/Perl checks and the complete twelve-digest/
+ten-identity verifier pass; all eleven package archive IDs and hashes remain
+unchanged. The standing immutability rule and publication gate are unchanged.
+Exact correction/backup evidence: `.agents/review/findings/rr-8.md`.
 
 ## rr-7 draft checksum input parsing (2026-09-05 UTC)
 

@@ -2,20 +2,34 @@
 
 ## Scope and immutable source
 
+### Explicit owner exception: checksum-only draft correction
+
+On 2026-09-05 UTC, the owner explicitly approved correcting the rc.2 draft after
+being told that the binaries passed and only the checksum list needed repair.
+This go authorizes replacing only `SHA256SUMS` on draft `383097364`, retaining
+the eleven existing package/installer archives and their exact hashes/build
+identities. Preserve the original manifest and metadata locally, recompute all
+archive hashes, upload the canonical LF/two-space manifest, and verify a fresh
+download with both standard checksum tools and the complete inventory checker.
+Do not publish, rebuild or replace binaries, change the target source/tag,
+include the newer harness change, or alter the live installation. This is a
+one-off owner exception, not a change to the standing immutability rule.
+
 - Owner authority: 2026-09-04 build/test go, recorded in `.agents/decisions.md`.
   Do not publish, create an explicit tag, close issues, replace the owner's
   installed payload, or stop existing PTK sessions.
 - Current candidate source: `6ab7040bde61adcf6722830dbb5807ac295ec166`.
 - Relative to the verified baseline, the candidate includes the `rr-5` staged
-  Windows fixture correction and `rr-6` Windows SIEM deployment-permission
-  repair. Concurrent unrelated uncommitted harness edits are not included.
+  Windows fixture correction, `rr-6` Windows SIEM deployment-permission repair,
+  and `rr-7` checksum-input parser repair. The separate newer harness change
+  at `eff24a5` is not included.
 - Current release workflow: [33935468032](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33935468032),
   dispatched 2026-09-05 01:12:46 UTC with version `0.3.0-rc.2`. The run API
   confirmed the exact source SHA above.
 - Before dispatch, no canonical tag or release record used `v0.3.0-rc.2`.
   Existing `v0.3.0-rc.1` records were left untouched.
 
-## Final result: draft built; portable-checksum gate failed
+## Final result: draft built; checksum correction verified
 
 Run `33935468032` passed all five native jobs and draft job `101226565157`
 at clean source `6ab7040`, completing 2026-09-05 01:42:03 UTC. Both Windows
@@ -36,12 +50,28 @@ The canonical exact inventory is
 Verification root: `/Users/michael/ptk-rc2-candidate4.hOfcTm`; detached
 `source` is clean at the exact candidate commit.
 
-**Do not publish this candidate:** standard
-`shasum -a 256 -c SHA256SUMS` fails on the downloaded manifest. Four Windows
-entries retain CRLF and the installer entry has one separator space. `rr-8`
-records a canonical-output repair for future assemblies; it does not alter this
-draft. The bytes themselves match their hashes. A new version/run requires an
-owner go; rc.3 with the newer harness fix is a recommendation, not a decision.
+The first downloaded checksum list failed standard tools: four Windows entries
+retained CRLF and the installer entry had one separator space. Under the
+explicit owner exception above, only `SHA256SUMS` was replaced on this same
+unpublished draft. The original file and metadata are preserved locally.
+The correction did not rebuild or replace any archive, change the version,
+source or tag, include the newer harness fix, or touch the live installation.
+
+The corrected asset was freshly downloaded with all eleven archives. Both
+`sha256sum -c SHA256SUMS` and `shasum -a 256 -c SHA256SUMS` passed all eleven
+files. The complete verifier also passed all twelve GitHub digests, eleven
+manifest hashes, exact bundle contents, safe extraction, and ten unique
+clean provenance/binary identities. Mac archive bytes still match those
+already signature/notarization/runtime-tested. All eleven archive asset IDs,
+sizes, and digests are unchanged. This closes `rr-8`.
+
+The old/new checksum IDs, hashes, sizes, and correction timestamp are recorded
+once in the linked assets inventory. Original backup, corrected upload,
+fresh downloads, metadata, and complete verification output remain under
+`/Users/michael/ptk-rc2-candidate4.hOfcTm/checksum-correction.0lRxnW`.
+The future formatter repair at `ac90719` also passed all six CI jobs in
+`33937538564`. Draft `383097364` remains unpublished; no tag ref was created.
+Publication still requires the remaining checks and owner gates below.
 
 The disposable verifier initially assumed exactly two spaces, then preserved
 the supported one/two-space input while retaining exact-name/count/hash checks.
@@ -49,8 +79,9 @@ It also initially let PowerShell turn JSON UTC strings into DateTime objects,
 which a second parse interpreted with a local offset. Reading provenance with
 `ConvertFrom-Json -DateKind String` fixed that helper-only failure. The partial
 extraction was moved aside before a fresh extraction; all integrity/provenance
-checks then exited zero. Neither helper correction excuses the separately
-confirmed standard-consumer failure.
+checks then exited zero. Those helper corrections did not excuse the initial
+standard-consumer failure; the owner-authorized checksum correction and fresh
+consumer tests above resolved it.
 
 ### Attempt-four local clean-source and downloaded Mac proof
 
@@ -246,8 +277,9 @@ roots and restrict uninstall to the disposable `.ptk` being tested.
 
 ## Remaining proof and authority
 
-- `rr-8`: a separately authorized new candidate must prove the repaired
-  uploaded manifest with both byte verification and standard checksum tools.
+- `rr-8` is closed after the explicitly authorized checksum-only correction
+  and fresh standard-consumer/full-inventory verification. The standing
+  immutability rule remains unchanged; no further replacement is authorized.
 - Downloaded Windows/Linux archives were integrity/provenance-checked here,
   but were not installed/uninstalled on matching native hardware. Their
   packaged activation, runtime, and SIEM workflow checks ran on native CI
@@ -261,6 +293,7 @@ roots and restrict uninstall to the disposable `.ptk` being tested.
 - The separate `eff24a5` harness fix is newer than the frozen candidate and
   already appears in the live installation. Include it in any recommended
   replacement candidate; do not silently downgrade the installed copy.
-- No draft was deleted, no uploaded asset replaced, and nothing was published.
-  Scratch roots and downloaded evidence remain available; the only uninstalls
+- No draft was deleted and nothing was published. Only the explicitly
+  authorized checksum asset was replaced; its original bytes are preserved.
+  Scratch roots and downloaded evidence remain available. The only uninstalls
   in this task targeted disposable proof homes.

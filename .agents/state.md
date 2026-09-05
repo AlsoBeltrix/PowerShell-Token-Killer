@@ -5,29 +5,28 @@ short and update it when important repo facts change.
 
 ## Now
 
-**Unpublished rc.2 was built and tested; final checks found a packaging blocker.**
-Source `6ab7040` passed all six CI jobs (`33935459185`) and all five native
-release jobs plus draft assembly (`33935468032`). Draft `383097364` remains
-unpublished. All 12 downloaded asset digests, 11 archive/installer hashes, and
-10 unique clean build identities match. Downloaded Mac signatures/notarization,
-isolated installation, 32 checks, SIEM workflows, and uninstall passed.
+**Unpublished rc.2 checksum correction is complete and verified.**
+The owner explicitly approved correcting only `SHA256SUMS` on the existing
+draft. Version `0.3.0-rc.2`, draft `383097364`, source `6ab7040`, and all
+eleven archive asset IDs/hashes remain unchanged. Fresh downloads passed GNU
+and Perl checksum tools, all twelve GitHub digests, eleven manifest hashes,
+and ten exact clean build identities. `rr-8` is closed, as are `rr-5`–`rr-7`.
+The original checksum file and metadata are preserved locally.
 
-The uploaded checksum list fails standard checksum tools because it retains
-Windows CRLF and a one-space installer entry (`rr-8`). The future assembler
-repair canonicalizes only already-verified entries to LF/two-space format;
-real GNU/Perl consumer guards have red/green and temporary-revert proof.
-Do not replace the immutable rc.2 draft. A new version/run needs explicit owner
-approval; recommendation: unpublished rc.3 including this repair and the newer
-`eff24a5` harness fix. This recommendation is not an adopted version decision.
-`rr-5`, `rr-6`, and `rr-7` are closed.
+The candidate's six-job CI `33935459185` and six-job release run `33935468032`
+passed. The future formatter repair at `ac90719` also passed all six CI jobs
+in `33937538564`. Downloaded Mac signatures/notarization, isolated installation,
+32 runtime checks, SIEM workflows, and uninstall remain valid because the
+archives are byte-for-byte unchanged.
 
-Candidate evidence and remaining native/public-launch gaps are canonical in
-`.agents/release-candidate-0.3.0-rc.2.md`, with machine-readable hashes and
-identities in its linked assets JSON. Tests stayed in disposable roots.
-The live installation changed separately to development build `eff24a5`;
-do not install the older frozen candidate over it without an owner ruling.
-No publication, explicit tag creation, issue closure, draft replacement, or
-live-install change was performed by this candidate task.
+The one-off owner exception and exact correction history are canonical in
+`.agents/release-candidate-0.3.0-rc.2.md` and its linked assets JSON. The
+standing immutability rule remains unchanged. Nothing was published, no tag ref
+was created, and this task did not replace or restart the live installation.
+The separate newer `eff24a5` harness fix is still outside the frozen candidate;
+do not silently downgrade the installed development copy. Remaining native
+download/public-launch checks and owner policy gates are recorded in the
+candidate record; this correction is not a public-release signoff.
 
 **Canonical `master` contains verified product commit `0c9328a`; its exact
 product tree is green in CI.** Run `33924847924` at `72ccd90` passed all six
@@ -82,10 +81,10 @@ and uninstall proof.
 
 ## Next
 
-- Obtain a go for a new unpublished candidate version/run. Recommend rc.3
-  with the portable-checksum formatter and newer harness fix; leave rc.2 and
-  the live installation intact. Security/support policies remain separate
-  prerequisites for a future public launch, not adopted by this test pass.
+- Keep corrected rc.2 unpublished and finish the remaining matching-native
+  downloaded-package checks before a public-release recommendation. Publication,
+  live installation, and any replacement candidate incorporating the newer
+  harness fix retain separate owner gates; rc.3 is not an adopted decision.
 - Close canonical GitHub #30 only under its separate outward-action gate.
   Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.

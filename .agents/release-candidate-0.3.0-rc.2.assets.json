@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "verified_at_utc": "2026-09-05 01:50:07 UTC",
+  "verified_at_utc": "2026-09-05T02:09:13Z",
   "release": {
     "repository": "AlsoBeltrix/PowerShell-Token-Killer",
     "id": 383097364,
@@ -125,9 +125,9 @@
       },
       {
         "name": "SHA256SUMS",
-        "sha256": "d2eca3a5064aa8afe5a2a6b10f68548d7401354e57c9335e9ec2e8762cb5dc46",
-        "github_digest": "sha256:d2eca3a5064aa8afe5a2a6b10f68548d7401354e57c9335e9ec2e8762cb5dc46",
-        "asset_id": 545199506
+        "sha256": "4f803af0fc457d30215bf23334cb1dab18a6f1cb65ec4751a43a2e3284dd84b1",
+        "github_digest": "sha256:4f803af0fc457d30215bf23334cb1dab18a6f1cb65ec4751a43a2e3284dd84b1",
+        "asset_id": 545218256
       }
     ],
     "builds": [
@@ -234,13 +234,18 @@
     ]
   },
   "portable_checksum_consumer": {
-    "passed": false,
-    "finding": "rr-8",
-    "command": "shasum -a 256 -c SHA256SUMS",
-    "exit_code": 1,
-    "errors": [
-      "CRLF is retained in four Windows filenames",
-      "Installer entry has one separator space and is improperly formatted"
+    "passed": true,
+    "commands": [
+      {
+        "command": "sha256sum -c SHA256SUMS",
+        "exit_code": 0,
+        "files_verified": 11
+      },
+      {
+        "command": "shasum -a 256 -c SHA256SUMS",
+        "exit_code": 0,
+        "files_verified": 11
+      }
     ]
   },
   "native_download_runtime": {
@@ -253,5 +258,40 @@
     "mac_install_and_uninstall_passed": true,
     "other_rids_not_run": true
   },
-  "publication_authorized": false
+  "publication_authorized": false,
+  "formatter_ci": {
+    "source_commit": "ac907198aae0735e6bbdb74704e10442c7792033",
+    "run_id": 33937538564,
+    "conclusion": "success",
+    "job_count": 6
+  },
+  "checksum_only_correction": {
+    "owner_authorized": true,
+    "authorization_record": ".agents/release-candidate-0.3.0-rc.2.md#explicit-owner-exception-checksum-only-draft-correction",
+    "uploaded_at_utc": "2026-09-05T02:04:24Z",
+    "verified_at_utc": "2026-09-05T02:09:13Z",
+    "original_asset": {
+      "id": 545199506,
+      "sha256": "d2eca3a5064aa8afe5a2a6b10f68548d7401354e57c9335e9ec2e8762cb5dc46",
+      "size": 1125
+    },
+    "replacement_asset": {
+      "id": 545218256,
+      "sha256": "4f803af0fc457d30215bf23334cb1dab18a6f1cb65ec4751a43a2e3284dd84b1",
+      "size": 1122
+    },
+    "eleven_archive_ids_sizes_and_hashes_unchanged": true,
+    "target_source_and_tag_unchanged": true,
+    "original_checksum_and_metadata_backup": "/Users/michael/ptk-rc2-candidate4.hOfcTm/checksum-correction.0lRxnW",
+    "prior_consumer_failure": {
+      "passed": false,
+      "finding": "rr-8",
+      "command": "shasum -a 256 -c SHA256SUMS",
+      "exit_code": 1,
+      "errors": [
+        "CRLF is retained in four Windows filenames",
+        "Installer entry has one separator space and is improperly formatted"
+      ]
+    }
+  }
 }

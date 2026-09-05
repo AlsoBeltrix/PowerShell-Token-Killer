@@ -12,25 +12,18 @@ roots; do not replace the live installation or stop its running sessions.
 Security/support decisions are deferred for this pass, not adopted or waived
 for a future public launch. Scope: `.agents/decisions.md`.
 
-Candidate attempt `33928685705` failed after Windows signing: both Windows
-jobs rejected the disposable install fixture's owner (`rr-5`). Mac and Linux
-passed; no draft was created. Test-only repair `eb3f999` is pushed and native
-rerun `33930714689` passed both Windows installation and product/Defender
-proofs, closing `rr-5`. Both Windows jobs then failed the separate SIEM
-operator-workflow gate with `config_protection`; no draft was created.
-Local Pester, server,
-SIEM, transaction, and staged-install checks all passed after the repair.
-Both rebuilt Linux jobs and macOS passed. Downloaded rebuilt Mac archives passed
-all 34 signature/online-ticket checks, 32-check installed-product/uninstall
-proof, and SIEM workflows. The Windows SIEM deployment-permissions defect now
-is repaired locally under `rr-6`: native guard-only CI `33932859920` failed on
-the generated config directory before the fix; Windows green proof must pass
-before another clean candidate build. Independent six-job CI
-`33930834519` passed on the same product/test tree.
-Attempt-one downloaded Mac proof and independent
-green six-job CI `33929388848` do not replace the rebuilt candidate's evidence.
-Details: `.agents/release-candidate-0.3.0-rc.2.md` and
-`.agents/review/findings/rr-5.md`.
+Current candidate source `a57ae57583b71bcfe6168428a64d6e05530c0147` has green
+six-job CI `33933206344`. Signed-candidate run `33933424682` builds that exact
+commit, excluding unrelated concurrent uncommitted harness edits. Both Linux
+jobs and macOS passed; Windows signing and final downloads remain. Downloaded
+Mac verification is running against the current candidate's new identities.
+
+Two earlier candidate attempts created no draft: `rr-5` fixed a Windows test
+fixture owner, and `rr-6` repaired missing Windows SIEM private permissions.
+The fixture has native Windows packaged red/green proof. The SIEM repair has
+native lifecycle/ACL red/green proof and awaits the current signed-package
+workflow. Attempt history, hashes, exact identities, and remaining checks are
+canonical in `.agents/release-candidate-0.3.0-rc.2.md`.
 
 **Canonical `master` contains verified product commit `0c9328a`; its exact
 product tree is green in CI.** Run `33924847924` at `72ccd90` passed all six

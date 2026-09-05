@@ -1,7 +1,7 @@
 # rr-6: Windows SIEM deployment omits private permissions
 
 **Severity:** HIGH — generated configuration is rejected by the receiver.
-**Status:** FIXED LOCALLY; native Windows green proof pending.
+**Status:** FIXED IN CI; exact signed-candidate workflow proof pending.
 **Scope:** `siem/manage.ps1`, `siem/test-manage.ps1`.
 
 Both Windows jobs in candidate run `33930714689` passed signing, packaged
@@ -54,3 +54,9 @@ away from the test account. This is not real cross-account service acceptance.
 Local Mac lifecycle checks and the SIEM solution pass after the repair;
 `git diff --check` passes for this slice. Native Windows green and the next
 exact packaged candidate remain required.
+
+Native green: fix commit `a57ae57` passed Windows job `101215931624` in CI
+`33933206344`: 357 receiver tests, `WINDOWS PRIVATE DEPLOYMENT ACL TEST PASSED`,
+complete deployment lifecycle, and native package build/verification. The extra
+reader and consent assertions executed in that pass. Mac and Linux SIEM jobs
+also passed. Signed-candidate run `33933424682` now builds that exact commit.

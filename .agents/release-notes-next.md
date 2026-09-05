@@ -10,8 +10,8 @@ after every pending field below is proved.
 - Version: `0.3.0-rc.2`, ruled by the owner on 2026-09-04.
 - Supersedes: `0.3.0-rc.1` (`0c8ed87635ef37db548d086ada78a2020c4b390f`).
 - Product delta summarized through: `0c9328a`.
-- Candidate source: `eb3f99903f76543ab58d00e0e11d20d975c16d7c`.
-- Candidate workflow: `33930714689`; results and asset proof are tracked in
+- Candidate source: `a57ae57583b71bcfe6168428a64d6e05530c0147`.
+- Candidate workflow: `33933424682`; results and asset proof are tracked in
   `.agents/release-candidate-0.3.0-rc.2.md`. Publication remains unauthorized.
 
 ## What changed
@@ -45,6 +45,9 @@ after every pending field below is proved.
 - Packaged receiver lifecycle tooling validates checksums, version, RID,
   ownership, path separation, and native service configuration across supported
   hosts. Windows deployment overlap and service ACL handling were repaired.
+  Generated Windows configuration, keys, and private directories now receive
+  the exact owner-only permissions the receiver requires; authorized service
+  identity handoff preserves that contract without inheritable or extra grants.
 
 ### Installation, provenance, and release integrity
 

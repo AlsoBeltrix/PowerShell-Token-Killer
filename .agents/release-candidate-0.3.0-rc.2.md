@@ -5,17 +5,32 @@
 - Owner authority: 2026-09-04 build/test go, recorded in `.agents/decisions.md`.
   Do not publish, create an explicit tag, close issues, replace the owner's
   installed payload, or stop existing PTK sessions.
-- Current candidate source: `eb3f99903f76543ab58d00e0e11d20d975c16d7c`.
-- Shipped product code is unchanged from verified product commit `0c9328a`;
-  attempt two adds only the `rr-5` staged-install test-fixture correction and
-  `.agents/` records.
-- Current release workflow: [33930714689](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33930714689),
-  dispatched 2026-09-04 at 23:46:08 UTC with version `0.3.0-rc.2`.
+- Current candidate source: `a57ae57583b71bcfe6168428a64d6e05530c0147`.
+- Relative to the verified baseline, the candidate includes the `rr-5` staged
+  Windows fixture correction and `rr-6` Windows SIEM deployment-permission
+  repair. Concurrent unrelated uncommitted harness edits are not included.
+- Current release workflow: [33933424682](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33933424682),
+  dispatched 2026-09-05 at 00:34:29 UTC with version `0.3.0-rc.2`.
   The run API confirmed the exact source SHA above.
 - Before dispatch, no canonical tag or release record used `v0.3.0-rc.2`.
   Existing `v0.3.0-rc.1` records were left untouched.
 
 ## Evidence status
+
+Attempt three is running on all five native RIDs. The new Windows lifecycle
+guard failed on the original permissions (`8ff9949`, job `101214936893` in
+`33932859920`), then passed with `a57ae57` in job `101215931624` of CI
+`33933206344`. That Windows job passed all 357 receiver tests, exact owner/DACL
+checks, extra-reader rejection, same-SID handoff/consent checks, lifecycle, and
+native receiver packaging. Mac and Linux SIEM jobs also passed. Final signed
+candidate and independent download checks are still required. All six jobs of
+CI `33933206344` subsequently passed at exact source `a57ae57`. Attempt-three
+scratch root: `/Users/michael/ptk-rc2-candidate3.2URb1u`.
+
+## Attempt-two failure
+
+Source `eb3f99903f76543ab58d00e0e11d20d975c16d7c`, run `33930714689`,
+dispatched 2026-09-04 at 23:46:08 UTC.
 
 The second run completed with failure. All five RIDs passed packaged
 installation and core product checks; both Windows jobs then failed the
@@ -30,7 +45,7 @@ CI `33930834519` passed at `8b8f61d`, whose product/test tree matches `eb3f999`.
 Attempt-two download/proof root:
 `/Users/michael/ptk-rc2-final-verification.TJev9J`.
 
-## Current rebuilt macOS ARM64 downloaded proof
+## Attempt-two rebuilt macOS ARM64 proof (supporting evidence only)
 
 The completed Mac job in run `33930714689` uploaded artifact `9958499271`.
 Its downloaded archives passed SHA-256 agreement, exact clean source/version/
@@ -53,8 +68,8 @@ RID provenance, and a fresh local macOS 26.6.2 ARM64 test pass:
 - Only disposable roots were modified. The owner's two supervisors and their
   workers/brokers stayed at the original PIDs.
 
-The eventual release assets must still be downloaded independently and have
-these exact archive hashes before this proof is attributed to that draft.
+These hashes and identities belong to attempt two, not the current candidate.
+Attempt three requires its own fresh downloaded-package proof.
 
 ## Attempt-one failure
 

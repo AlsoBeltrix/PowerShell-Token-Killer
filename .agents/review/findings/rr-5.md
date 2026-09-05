@@ -1,7 +1,7 @@
 # rr-5: packaged-install fixture has the wrong Windows owner
 
 **Severity:** HIGH — both Windows candidate jobs stop before installation proof.
-**Status:** FIXED LOCALLY; native candidate rerun pending.
+**Status:** FIXED on canonical `master`; native Windows red/green confirmed.
 **Scope:** `server/test-staged-install.ps1`; no shipped ownership policy change.
 
 ## Evidence and attribution
@@ -43,5 +43,8 @@ in a disposable home; `server/test-install-transaction.ps1` passed; release
 assembly/installer-bundle guards passed; Pester passed 113 with 3 platform skips;
 SIEM passed 357/357; server passed 1,360/1,360 with the two known analyzer
 warnings; `git diff --check` passed. Fix commit `eb3f999` reached canonical
-`master`. Native rerun `33930714689` is testing that exact commit. Native Windows
-verification is still required.
+`master`. Native rerun `33930714689` passed the packaged installation proof on
+both `win-x64` and `win-arm64`, followed by both 32-check product/Defender
+proofs. This closes the fixture defect. Both jobs subsequently failed the
+independent SIEM operator-workflow gate with `config_protection`; that is a
+separate deployment-permissions defect, not a recurrence of this finding.

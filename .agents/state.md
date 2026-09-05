@@ -15,8 +15,16 @@ for a future public launch. Scope: `.agents/decisions.md`.
 Candidate attempt `33928685705` failed after Windows signing: both Windows
 jobs rejected the disposable install fixture's owner (`rr-5`). Mac and Linux
 passed; no draft was created. Test-only repair `eb3f999` is pushed and native
-rerun `33930714689` is in progress from that exact source. Local Pester, server,
+rerun `33930714689` passed both Windows installation and product/Defender
+proofs, closing `rr-5`. Both Windows jobs then failed the separate SIEM
+operator-workflow gate with `config_protection`; no draft was created.
+Local Pester, server,
 SIEM, transaction, and staged-install checks all passed after the repair.
+Both rebuilt Linux jobs and macOS passed. Downloaded rebuilt Mac archives passed
+all 34 signature/online-ticket checks, 32-check installed-product/uninstall
+proof, and SIEM workflows. The Windows SIEM deployment-permissions defect now
+needs repair before another clean candidate build. Independent six-job CI
+`33930834519` passed on the same product/test tree.
 Attempt-one downloaded Mac proof and independent
 green six-job CI `33929388848` do not replace the rebuilt candidate's evidence.
 Details: `.agents/release-candidate-0.3.0-rc.2.md` and

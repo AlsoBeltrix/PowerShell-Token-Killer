@@ -17,13 +17,44 @@
 
 ## Evidence status
 
-The second run is in progress on all five native RIDs. No candidate-grade pass
-is claimed yet. After the fixture correction, local verification passed:
+The second run completed with failure. All five RIDs passed packaged
+installation and core product checks; both Windows jobs then failed the
+packaged SIEM workflow with `siem_receiver_configuration_invalid:
+config_protection`. Draft assembly was skipped. No candidate-grade pass is
+claimed yet. After the fixture correction, local verification passed:
 Pester 113/3 platform skips, server 1,360/1,360 (two known analyzer warnings),
 SIEM 357/357, transaction helper, staged-install handshakes, release-assembly
-guards, PowerShell parse, and `git diff --check`. Windows native green proof is
-still required. Attempt-two download/proof root:
+guards, PowerShell parse, and `git diff --check`. Native Windows evidence closes
+`rr-5`; the separate SIEM permissions failure needs repair. Independent six-job
+CI `33930834519` passed at `8b8f61d`, whose product/test tree matches `eb3f999`.
+Attempt-two download/proof root:
 `/Users/michael/ptk-rc2-final-verification.TJev9J`.
+
+## Current rebuilt macOS ARM64 downloaded proof
+
+The completed Mac job in run `33930714689` uploaded artifact `9958499271`.
+Its downloaded archives passed SHA-256 agreement, exact clean source/version/
+RID provenance, and a fresh local macOS 26.6.2 ARM64 test pass:
+
+| Product | Archive SHA-256 | Build identity |
+| --- | --- | --- |
+| PTK | `b2b1e048315a47afdf4fec6f41705b25fb8f5ee105158029bb4c03943071a584` | `f22d99caeb6d4efbb313a48c79e3b649` |
+| SIEM receiver | `1d26f120fc9b94e703274764b81479895d5ff4931a795c9240a6f2da57fd2d49` | `b1961d814f5f4cfb856ac9f117b45b43` |
+
+- All 34 Mach-O files passed strict signature verification, Developer ID
+  authority checks, and forced online notarization-ticket checks. Apple's
+  accepted submission is `017e8e1d-4f1f-46e8-9e06-f1306f03f6bf`.
+- The corrected packaged-install test passed both handshakes. Separate actual
+  activation into an isolated `.ptk` passed staged/installed handshakes and all
+  32 direct-product checks, including successful removal by the packaged
+  uninstaller.
+- SIEM package verification and all three packaged operator workflows passed.
+  Real external-SIEM acceptance is not claimed.
+- Only disposable roots were modified. The owner's two supervisors and their
+  workers/brokers stayed at the original PIDs.
+
+The eventual release assets must still be downloaded independently and have
+these exact archive hashes before this proof is attributed to that draft.
 
 ## Attempt-one failure
 

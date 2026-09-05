@@ -1,5 +1,11 @@
 # Review status
 
+## rr-6 Windows SIEM deployment permissions (2026-09-05 UTC)
+
+The rebuilt candidate exposed omitted Windows private-permission setup in the
+SIEM manager. The receiver correctly refused its generated configuration. A
+lifecycle guard is added before repair; see `.agents/review/findings/rr-6.md`.
+
 ## rr-5 packaged-install Windows fixture (2026-09-04)
 
 Candidate run `33928685705` exposed a wrong-owner disposable fixture on both

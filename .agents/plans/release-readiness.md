@@ -43,6 +43,12 @@ invent either.
 
 ## Activation audit — 2026-09-04
 
+Second-run finding `rr-6` requires repairing the SIEM manager's Windows private
+permissions and explicit service-identity handoff, not weakening receiver
+admission. Add native descriptor assertions to the lifecycle suite first and
+prove Windows red/green before another signing run. Preserve concurrent
+unrelated harness edits. Scope/evidence: `.agents/review/findings/rr-6.md`.
+
 Candidate execution exposed `rr-5`: both Windows jobs in `33928685705` built
 and signed successfully but refused the disposable install fixture's owner.
 The known-broken repair scope is test setup only: assign that new Windows

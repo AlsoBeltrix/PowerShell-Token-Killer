@@ -23,6 +23,27 @@ function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
 
+function Assert-WindowsPrivatePath([string]$Path) {
+    $item = Get-Item -LiteralPath $Path -Force
+    $security = [IO.FileSystemAclExtensions]::GetAccessControl($item)
+    $descriptor = [Security.AccessControl.RawSecurityDescriptor]::new(
+        $security.GetSecurityDescriptorBinaryForm(), 0)
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $valid = $null -ne $descriptor.Owner -and $sid.Equals($descriptor.Owner) -and
+        $descriptor.ControlFlags.HasFlag(
+            [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -and
+        $null -ne $descriptor.DiscretionaryAcl -and $descriptor.DiscretionaryAcl.Count -eq 1
+    if ($valid) {
+        $ace = $descriptor.DiscretionaryAcl[0]
+        $valid = $ace -is [Security.AccessControl.CommonAce] -and
+            $ace.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed -and
+            -not $ace.IsCallback -and $ace.AceFlags -eq [Security.AccessControl.AceFlags]::None -and
+            $sid.Equals($ace.SecurityIdentifier) -and
+            $ace.AccessMask -eq [int][Security.AccessControl.FileSystemRights]::FullControl
+    }
+    Assert-True $valid "Windows private ACL contract failed: $Path"
+}
+
 function New-TestRelease {
     param([string]$Version)
     $case = Join-Path $root $Version
@@ -192,6 +213,33 @@ try {
         'Mini-SIEM deployment silently selected a PTK destination.'
     $manifest = Get-Content -LiteralPath $parameters.ManifestPath -Raw |
         ConvertFrom-Json -Depth 32
+    if ($IsWindows) {
+        $configDirectory = Split-Path -Parent $parameters.ConfigurationPath
+        $privatePaths = @($configDirectory, $parameters.DataDirectory,
+            $parameters.WitnessDirectory, $parameters.ManifestPath,
+            $parameters.ServiceDefinitionPath) + @(
+            Get-ChildItem -LiteralPath $configDirectory -Recurse -Force |
+                ForEach-Object FullName)
+        foreach ($path in $privatePaths) { Assert-WindowsPrivatePath $path }
+
+        # Require rejection of an extra reader, then restore the disposable config.
+        $configFile = [IO.FileInfo]::new($parameters.ConfigurationPath)
+        $originalSecurity = [IO.FileSystemAclExtensions]::GetAccessControl($configFile)
+        $permissiveSecurity = [IO.FileSystemAclExtensions]::GetAccessControl($configFile)
+        $permissiveSecurity.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]::new('S-1-1-0'),
+                [Security.AccessControl.FileSystemRights]::Read,
+                [Security.AccessControl.AccessControlType]::Allow))
+        $extraReaderRejected = $false
+        try {
+            [IO.FileSystemAclExtensions]::SetAccessControl($configFile, $permissiveSecurity)
+            try { Assert-WindowsPrivatePath $parameters.ConfigurationPath }
+            catch { $extraReaderRejected = $_.Exception.Message -like 'Windows private ACL contract failed:*' }
+        }
+        finally { [IO.FileSystemAclExtensions]::SetAccessControl($configFile, $originalSecurity) }
+        Assert-True $extraReaderRejected 'Windows ACL guard accepted an extra reader.'
+        Write-Host 'WINDOWS PRIVATE DEPLOYMENT ACL TEST PASSED'
+    }
     Assert-True (-not $manifest.anchored) 'Manifest default implied anchored deployment.'
     Assert-True ($manifest.ingest_endpoint -ceq 'https://[::1]:19418/v1/logs') `
         'Manifest did not format an IPv6 ingest endpoint safely.'

@@ -1,7 +1,7 @@
 # rr-7: Draft assembly rejects Windows checksum line endings
 
 **Severity:** HIGH — all five native candidates pass, but no draft can assemble.
-**Status:** FIXED LOCALLY; canonical candidate rerun pending.
+**Status:** CLOSED — canonical candidate assembly passes.
 **Scope:** `scripts/assemble-draft-release.sh` and its existing shell tests.
 
 Release run `33933424682`, source `a57ae57`, passed all five native jobs,
@@ -30,3 +30,10 @@ before any GitHub call. Existing immutability, missing-checksum, extra-asset,
 installer-bundle, and fail-closed query checks remain green. ShellCheck,
 actionlint, and `git diff --check` pass. Signed candidate assembly remains the
 native integration proof; no guard was bypassed and no asset was replaced.
+
+Run `33935468032` at repair commit `6ab7040` passed all five native jobs and
+draft assembly job `101226565157`, creating unpublished release `383097364`.
+This closes the input-parser failure. Downloaded standard-tool verification
+subsequently exposed a distinct output-format defect (`rr-8`): accepting native
+line endings is insufficient if the final uploaded manifest retains them.
+Do not confuse this closure with public-release approval or an rr-8 fix.

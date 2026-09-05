@@ -1,7 +1,7 @@
 # rr-6: Windows SIEM deployment omits private permissions
 
 **Severity:** HIGH — generated configuration is rejected by the receiver.
-**Status:** FIXED IN CI; exact signed-candidate workflow proof pending.
+**Status:** CLOSED — native CI and both signed Windows candidate workflows pass.
 **Scope:** `siem/manage.ps1`, `siem/test-manage.ps1`.
 
 Both Windows jobs in candidate run `33930714689` passed signing, packaged
@@ -60,3 +60,10 @@ Native green: fix commit `a57ae57` passed Windows job `101215931624` in CI
 complete deployment lifecycle, and native package build/verification. The extra
 reader and consent assertions executed in that pass. Mac and Linux SIEM jobs
 also passed. Signed-candidate run `33933424682` now builds that exact commit.
+
+Signed-candidate run `33933424682` subsequently passed both Windows jobs
+(`101216561003`, `101216561118`): exact private-ACL lifecycle guard, signed
+packaged activation, all 32 product/Defender checks, and all three packaged
+SIEM operator workflows. The original `config_protection` refusal is gone
+without relaxing receiver admission. This closes the finding; real
+cross-account handoff and external-SIEM product acceptance are not claimed.

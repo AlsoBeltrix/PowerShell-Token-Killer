@@ -27,6 +27,30 @@ candidate and independent download checks are still required. All six jobs of
 CI `33933206344` subsequently passed at exact source `a57ae57`. Attempt-three
 scratch root: `/Users/michael/ptk-rc2-candidate3.2URb1u`.
 
+## Attempt-three downloaded macOS ARM64 proof
+
+The downloaded `ptk-osx-arm64` workflow artifact from run `33933424682`
+passed fresh local verification on macOS ARM64. These results identify the
+current candidate, not either earlier attempt.
+
+| Product | Archive SHA-256 | Build identity |
+| --- | --- | --- |
+| PTK | `e8bb6d67f6d87e9ee24bcfd5c1b52fea0bad2b5383c3e44af821c627f85d3a8c` | `190a2a039597449ab3f60a6a44bcc256` |
+| SIEM receiver | `8d0a8bb8af4aaaf74cd07f0ea20af7ceabba41fb7585c595316b67157e7ddcb1` | `546950b7771442cb85d29a00627f338a` |
+
+- Both archive checksums and clean source/version/RID provenance matched.
+- All 34 Mach-O strict signature, Developer ID authority, and forced online
+  notarization-ticket checks passed. Apple's accepted submission:
+  `1924a6a3-b40d-4550-94f8-20ae860e7cc5`.
+- Packaged staged-install proof passed both handshakes. Separate activation
+  into a disposable `.ptk` passed staged/installed handshakes and all
+  32 direct-product checks, including actual packaged uninstall.
+- SIEM package verification and all three packaged operator workflows passed.
+  This is not real external-SIEM product acceptance.
+- Local orchestration exited zero. The two original live supervisors
+  (PIDs 7123 and 7562) remained running; their installation was untouched.
+- Final draft archives still require byte comparison with these tested bytes.
+
 ## Attempt-two failure
 
 Source `eb3f99903f76543ab58d00e0e11d20d975c16d7c`, run `33930714689`,

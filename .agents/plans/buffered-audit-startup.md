@@ -57,11 +57,17 @@ heavy filesystem metadata activity.
   no vulnerable packages. Pester passed 116 with 3 platform skips; mini-SIEM
   lifecycle and the complete registration handshake passed.
 - The initial server run passed 1,373/1,375; the two failures and three
-  script-launch failures came from the separately reproduced system PowerShell
-  startup crash documented in `.agents/machines.md`. With its checksum-proved
+  script-launch failures coincided with the PowerShell child-launch crashes
+  documented in `.agents/machines.md`. With the checksum-proved
   isolated verification runtime, all three focused installer/stdio cases
   passed. The full server rerun passed 1,375/1,375 with the two existing
   xUnit analyzer warnings; no test was suppressed. `git diff --check` passed.
+- Subsequent checks with the normal Homebrew PowerShell 7.6.5 passed the
+  three affected installer/stdio cases, Pester (116 passed/3 platform skips),
+  lifecycle, and registration handshake. Version queries also succeeded in
+  both original test environments and under a PTY. The earlier child-launch
+  failures do not establish that the system installation is broken; their
+  cause remains unknown. No runtime replacement was required for this recheck.
 - No release package, installed-product proof, or Windows/Linux execution
   was performed for this slice. The installed payload and rc.2 artifacts
   remain unchanged. Applying the repair locally requires a later installation

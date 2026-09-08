@@ -3,15 +3,17 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
-## `nagatha-2.local` PowerShell verification runtime failure (2026-09-08)
+## `nagatha-2.local` PowerShell child-launch failures and successful recheck (2026-09-08)
 
-- During the buffered-audit-startup repair, Homebrew PowerShell 7.6.5 at
-  `/opt/homebrew/Cellar/powershell/7.6.5/libexec/pwsh` aborted with exit 134
+- During the initial buffered-audit-startup verification, child processes
+  launched from the PTK worker through `/opt/homebrew/bin/pwsh` (the Homebrew
+  PowerShell 7.6.5 wrapper) aborted with exit 134
   (`SIGABRT`) before executing a version query. The error was
   `System.IO.FileLoadException: The given assembly name was invalid`, naming
   a malformed `System.Collections.Concurrent` assembly identity. Both the
   inherited worker environment and a minimal HOME/PATH/TMPDIR/LANG environment
-  reproduced it. The cause of the system installation failure is unverified.
+  reproduced it at that time. This is evidence about those failed launches,
+  not a diagnosis of a broken system installation or a PTK defect.
 - This prevented Pester, the lifecycle script, and the handshake from starting,
   and caused two otherwise unrelated server cases to fail: installer rollback
   and native UTF-8 output through external `pwsh`. The first server run passed
@@ -24,6 +26,14 @@ entries during a `drift` pass.
   No system installation or test gate was changed. The three focused
   installer/stdio tests passed, Pester passed 116 with 3 platform skips,
   lifecycle passed, and the full registration handshake passed.
+- The owner subsequently showed PowerShell 7.6.5 starting successfully in a
+  terminal. The same noninteractive version query then passed through the
+  normal Homebrew wrapper in both inherited and minimal environments, and a
+  PTY launch passed too. Without changing the system installation, the three
+  affected installer/stdio cases, Pester (116 passed/3 platform skips),
+  lifecycle, and complete registration handshake all passed with normal
+  PowerShell 7.6.5. The reason for the earlier failures remains unknown.
+  The earlier claim that the system's PowerShell crashes was too broad.
 - Repair results and complete verification are canonical in
   `.agents/plans/buffered-audit-startup.md`. The live PTK installation still
   carries the earlier build until a separate installation go.

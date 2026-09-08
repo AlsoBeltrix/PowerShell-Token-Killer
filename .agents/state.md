@@ -10,7 +10,8 @@ and verification are complete. The local
 startup probe improved from 27.933 seconds to 5.096 seconds with the existing
 history and healthy audit. Scope, exact measured builds, validation results,
 and limitations are canonical in `.agents/plans/buffered-audit-startup.md`.
-The system PowerShell startup failure and isolated verification runtime are
+The earlier PowerShell child-launch failures and subsequent successful
+verification with the normal PowerShell 7.6.5 installation are
 recorded in `.agents/machines.md`. This repair does not alter the installed
 PTK build or the frozen rc.2 candidate.
 

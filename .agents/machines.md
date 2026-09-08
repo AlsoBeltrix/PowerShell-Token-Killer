@@ -343,9 +343,10 @@ _Manual two-host-equivalent acceptance at exact source head
   No user or system Keychain/trust setting was changed.
 - A real MCP `ptk_invoke` returned marker
   `PTK-S7-90371c809be54301b2160b81185a0414`. For supervisor boot
-  `d54c1f7d-b746-406a-a3d6-318f8cb86a77`, the protected producer cursor at
-  `producer-environment/audit/export-cursor.json` advanced from sequence 1,
-  offset 2506 to sequence 3, offset 8148 only after receiver acceptance.
+  `d54c1f7d-b746-406a-a3d6-318f8cb86a77`, the protected producer cursor was at
+  `producer-environment/audit/export-cursor.json`, relative to the disposable S7 root above. <!-- lint: allow (historical runtime artifact under the removed disposable S7 root) -->
+  It advanced from sequence 1, offset 2506 to sequence 3, offset 8148 only
+  after receiver acceptance.
   `ptk_state` reported healthy `otlp_http`, delivered 3, pending bytes 0.
 - Receiver `/` returned 200 and identified PTK SIEM Receiver. Authenticated
   `/api/events` and `/api/events/{id}` returned the resulting

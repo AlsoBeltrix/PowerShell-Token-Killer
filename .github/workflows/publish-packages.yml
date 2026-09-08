@@ -1,0 +1,153 @@
+name: Publish package channels
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published release version without v
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-publication
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      source: ${{ steps.release.outputs.source }}
+    steps:
+      - name: Pin one published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: pwsh
+        run: |
+          $version = $env:INPUT_VERSION ? $env:INPUT_VERSION : ($env:RELEASE_TAG -replace '^v', '')
+          if ($version -cnotmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9][A-Za-z0-9.-]*)?$') { throw 'Invalid release version.' }
+          $release = gh api "repos/AlsoBeltrix/PowerShell-Token-Killer/releases/tags/v$version" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $release.draft -or $release.target_commitish -cnotmatch '^[0-9a-f]{40}$') {
+            throw 'Package publication requires one published release with an exact source SHA.'
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "source=$($release.target_commitish)" >> $env:GITHUB_OUTPUT
+
+  validate:
+    needs: resolve
+    uses: ./.github/workflows/validate-packages.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+      source: ${{ needs.resolve.outputs.source }}
+
+  tap_and_bucket:
+    needs: [resolve, validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: homebrew
+            deploy_key: HOMEBREW_TAP_DEPLOY_KEY
+          - channel: scoop
+            deploy_key: SCOOP_BUCKET_DEPLOY_KEY
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: package-manifests
+          path: packages
+      - name: Publish verified manifests
+        env:
+          DEPLOY_KEY: ${{ secrets[matrix.deploy_key] }}
+          PACKAGE_SSH_KNOWN_HOSTS: ${{ secrets.PACKAGE_SSH_KNOWN_HOSTS }}
+          PTK_USE_DEPLOY_KEY: '1'
+          PTK_PACKAGE_CHANNEL: ${{ matrix.channel }}
+          PTK_PACKAGE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" || { echo 'The destination deploy key is required' >&2; exit 1; }
+          test -n "$PACKAGE_SSH_KNOWN_HOSTS" || { echo 'PACKAGE_SSH_KNOWN_HOSTS is required' >&2; exit 1; }
+          umask 077
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/package-key"
+          printf '%s\n' "$PACKAGE_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/package-known-hosts"
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/package-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/package-known-hosts"
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -B scripts/publish-package-manifests.py "$PTK_PACKAGE_CHANNEL" packages "$PTK_PACKAGE_VERSION" \
+            "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/$GITHUB_RUN_ID"
+
+  winget:
+    needs: [resolve, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: package-manifests
+          path: packages
+      - name: Submit or identify the winget PR
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_TOKEN || github.token }}
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          PTK_PACKAGE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing=$(gh pr list -R microsoft/winget-pkgs --head "roethlar:ptk-$PTK_PACKAGE_VERSION" --state all --json url --jq '.[0].url // empty')
+          if [ -n "$existing" ]; then
+            echo "$existing"
+            exit 0
+          fi
+          test -n "$WINGET_TOKEN" || { echo 'Submit the generated manifests with the operator gh session, or configure WINGET_TOKEN for automated PR creation' >&2; exit 1; }
+          gh auth setup-git
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -B scripts/publish-package-manifests.py winget packages "$PTK_PACKAGE_VERSION" \
+            "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/$GITHUB_RUN_ID"
+
+  aur:
+    needs: [resolve, validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: package-manifests
+          path: packages
+      - name: Publish verified AUR manifest
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          AUR_SSH_KNOWN_HOSTS: ${{ secrets.AUR_SSH_KNOWN_HOSTS }}
+          PTK_PACKAGE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AUR_SSH_PRIVATE_KEY" || { echo 'AUR_SSH_PRIVATE_KEY is required' >&2; exit 1; }
+          test -n "$AUR_SSH_KNOWN_HOSTS" || { echo 'AUR_SSH_KNOWN_HOSTS is required' >&2; exit 1; }
+          umask 077
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > "$RUNNER_TEMP/aur-key"
+          printf '%s\n' "$AUR_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/aur-known-hosts"
+          export GIT_SSH_COMMAND="ssh -i $RUNNER_TEMP/aur-key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/aur-known-hosts"
+          git config --global user.name 'PowerShell Token Killer contributors'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          python -B scripts/publish-package-manifests.py aur packages "$PTK_PACKAGE_VERSION" \
+            "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/$GITHUB_RUN_ID"

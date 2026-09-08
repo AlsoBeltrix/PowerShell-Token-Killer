@@ -59,14 +59,35 @@ the signed-artifact and downloaded-product gates in release-readiness.md.
    and verify each channel's actual availability. A submitted PR is pending,
    not a completed winget release. Keep update automation with the manifests.
 
-## External prerequisites (open)
+## Publishing setup (corrected after owner steering)
 
-- Canonical repository private vulnerability reporting is disabled. Current
-  GitHub user roethlar has push but no admin/maintain permission. The owner
-  has been asked to enable private reporting via an admin or provide a
-  monitored private contact before SECURITY.md can promise that route.
-- AUR rejected the available SSH key. The owner has been asked for the AUR
-  account name and registered key path. No AUR publication is claimed.
+The owner pointed to `../certs` and clarified that prior releases used this
+existing setup. The initial credential asks were premature: the working
+account-level instructions and keys were already available there. Use
+`../certs/package-managers.md` as the publishing-identity source; no key/token
+values belong in this repository or tool output.
+
+- Homebrew and Scoop destination-scoped deploy keys authenticate successfully.
+  They are now configured as `HOMEBREW_TAP_DEPLOY_KEY` and
+  `SCOOP_BUCKET_DEPLOY_KEY` in canonical Actions secrets.
+- The original `aur` key is rejected, but `aur-blit` authenticates as
+  `roethlar`. That working key is configured as `AUR_SSH_PRIVATE_KEY`.
+  The `ptk-bin` AUR name is currently unused. Known-host entries already
+  trusted by the operator are pinned in the corresponding Actions secrets.
+- The package-manager PAT is valid but GitHub rejects it for upstream winget
+  PR creation (HTTP 403). Reuse the already-authenticated `gh` operator
+  session for this submission, as Songr previously did. Do not mint a token
+  or copy a broader unrelated credential just to satisfy a new setup ask.
+  `WINGET_TOKEN` is optional future unattended PR creation; automation can
+  recognize the operator-created PR. The publisher segment is lowercase
+  `roethlar`: PTK's identifier is `roethlar.PowerShellTokenKiller`.
+- Private vulnerability reporting remains disabled and these credentials
+  have no canonical admin permission. Interpretation of the owner's steering:
+  this is an update to an already-public project using its existing release
+  setup, not a new first-public-launch policy exercise. Do not invent a
+  private contact or claim that reporting was enabled. The old first-launch
+  policy asks are not reintroduced as new setup required of the owner for
+  this maintenance prerelease.
 
 ## Progress
 
@@ -114,3 +135,23 @@ all five RIDs. Its scripts come from the workflow ref, while `source` pins the
 product identity being verified; no checkout-built product is used. Windows
 uses a disposable standard account to retain the real non-elevated uninstall
 gate. Native downloaded-product execution remains pending the new draft.
+
+### Package publication tooling
+
+The generator now emits the Homebrew formula, Scoop manifest, three winget
+manifests, and AUR PKGBUILD/.SRCINFO from exact release asset URLs and GitHub
+digests. It refuses unpublished releases except an explicit fixture-only
+mode. Homebrew style and Ruby syntax checks pass; PKGBUILD shell syntax passes.
+Three generator guards and a local bare-Git publication test pass. Removing
+the draft refusal made its negative test fail; removing the publisher's push
+made the remote-content assertion fail. Restoring both passed. The publication
+test also proves preservation of foreign package/docs and a no-op retry.
+
+The package-validation workflow installs and removes packages through actual
+Homebrew, Scoop, winget, and Arch tools after public URLs exist. The publisher
+workflow depends on that validation, uses the established destination-scoped
+deploy keys, and produces/recognizes the winget PR. It is not proof that any
+channel is already public; actual native manager tests and publication remain
+pending. The first winget PR uses the operator's existing gh OAuth login;
+unattended creation needs a suitable WINGET_TOKEN, which is not currently
+configured and is not fabricated from an unrelated broader credential.

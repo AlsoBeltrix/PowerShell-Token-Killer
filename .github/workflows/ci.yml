@@ -76,7 +76,14 @@ jobs:
         run: ./server/test-release-selection.ps1
 
       - name: Downloaded release integrity guards
-        run: python -B scripts/test-verify-release-assets.py
+        shell: pwsh
+        run: |
+          python -B scripts/test-verify-release-assets.py
+          if ($LASTEXITCODE -ne 0) { throw 'Release integrity guards failed.' }
+          python -B scripts/test-generate-package-manifests.py
+          if ($LASTEXITCODE -ne 0) { throw 'Package manifest guards failed.' }
+          python -B scripts/test-publish-package-manifests.py
+          if ($LASTEXITCODE -ne 0) { throw 'Package publication guard failed.' }
 
       - name: Version fallback tests
         shell: pwsh

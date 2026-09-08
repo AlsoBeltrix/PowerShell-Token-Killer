@@ -1,0 +1,169 @@
+name: Validate published package manifests
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+      source:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published release version without v
+        type: string
+        required: true
+      source:
+        description: Full source SHA of the published release
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  PTK_RELEASE_VERSION: ${{ inputs.version }}
+  PTK_RELEASE_SOURCE: ${{ inputs.source }}
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Verify published bytes and generate manifests
+        shell: pwsh
+        run: |
+          python -B scripts/download-release.py $env:PTK_RELEASE_VERSION $env:PTK_RELEASE_SOURCE "$env:RUNNER_TEMP/downloads"
+          if ($LASTEXITCODE -ne 0) { throw 'Published release verification failed.' }
+          python -B scripts/generate-package-manifests.py "$env:RUNNER_TEMP/downloads/release.json" packages
+          if ($LASTEXITCODE -ne 0) { throw 'Published manifest generation failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-manifests
+          path: packages
+          include-hidden-files: true
+
+  homebrew:
+    needs: manifests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Homebrew/actions/setup-homebrew@fd832223f9f99ebf0244dd20658680e5d4aca049 # 2026.08.03.2
+      - uses: actions/download-artifact@v5
+        with:
+          name: package-manifests
+          path: packages
+      - name: Install and inspect the generated formula
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew tap-new ptk-validation/local
+          cp packages/homebrew/Formula/ptk.rb "$(brew --repository ptk-validation/local)/Formula/ptk.rb"
+          brew style ptk-validation/local/ptk
+          brew audit --strict --formula ptk-validation/local/ptk
+          brew install ptk-validation/local/ptk
+          brew test ptk-validation/local/ptk
+          ptk version
+          ptk doctor
+          pwsh -NoProfile -File server/test-operator-cli.ps1 -LayoutRoot "$(brew --prefix ptk)/libexec"
+          pwsh -NoProfile -File server/test-handshake.ps1 -ServerCommand "$(brew --prefix ptk)/libexec/bin/PtkMcpServer"
+          if [ "$(uname)" = Darwin ]; then
+            codesign --verify --strict --check-notarization "$(brew --prefix ptk)/libexec/bin/ptk"
+          fi
+          brew uninstall ptk
+
+  windows:
+    needs: manifests
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v5
+        with:
+          name: package-manifests
+          path: packages
+      - name: Install and verify the Scoop package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:SCOOP = Join-Path $env:RUNNER_TEMP 'scoop'
+          Invoke-WebRequest https://get.scoop.sh -OutFile "$env:RUNNER_TEMP/install-scoop.ps1"
+          & "$env:RUNNER_TEMP/install-scoop.ps1" -RunAsAdmin
+          $env:PATH = "$env:SCOOP/shims;$env:PATH"
+          scoop install (Resolve-Path packages/scoop/bucket/ptk.json)
+          if ($LASTEXITCODE -ne 0) { throw 'Scoop installation failed.' }
+          ptk version
+          ptk doctor
+          if ($LASTEXITCODE -ne 0) { throw 'Scoop package cannot find its dependency.' }
+          & server/test-operator-cli.ps1 -LayoutRoot "$env:SCOOP/apps/ptk/current"
+          & server/test-handshake.ps1 -ServerCommand "$env:SCOOP/apps/ptk/current/bin/PtkMcpServer.exe"
+          scoop uninstall ptk
+          if ($LASTEXITCODE -ne 0) { throw 'Scoop removal failed.' }
+      - name: Validate, install, and remove the winget package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery
+            Repair-WinGetPackageManager -AllUsers -Force -Latest
+          }
+          $manifest = Join-Path $PWD "packages/winget/manifests/r/roethlar/PowerShellTokenKiller/$env:PTK_RELEASE_VERSION"
+          winget validate --manifest $manifest
+          if ($LASTEXITCODE -ne 0) { throw 'winget manifest validation failed.' }
+          winget settings --enable LocalManifestFiles
+          if ($LASTEXITCODE -ne 0) { throw 'Could not enable local manifest testing.' }
+          winget install --manifest $manifest --accept-package-agreements --accept-source-agreements --disable-interactivity --scope user
+          if ($LASTEXITCODE -ne 0) { throw 'winget installation failed.' }
+          $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'User') + ';' + $env:PATH
+          $cli = Join-Path $env:LOCALAPPDATA 'Microsoft/WinGet/Links/ptk.exe'
+          & $cli version
+          & $cli doctor
+          if ($LASTEXITCODE -ne 0) { throw 'winget package cannot find its dependency.' }
+          $target = (Get-Item $cli).ResolveLinkTarget($true).FullName
+          & server/test-operator-cli.ps1 -LayoutRoot (Split-Path (Split-Path $target -Parent) -Parent)
+          & server/test-handshake.ps1 -ServerCommand (Join-Path (Split-Path $target -Parent) 'PtkMcpServer.exe')
+          winget uninstall --id roethlar.PowerShellTokenKiller --exact --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw 'winget removal failed.' }
+
+  aur:
+    needs: manifests
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: package-manifests
+          path: packages
+      - name: Build and inspect the Arch package as a standard build user
+        shell: bash
+        run: |
+          set -euo pipefail
+          pacman -Syu --noconfirm git namcap sudo icu openssl krb5 zlib
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: /usr/bin/pacman' > /etc/sudoers.d/builder
+          cp -R packages/aur /home/builder/ptk-bin
+          chown -R builder:builder /home/builder/ptk-bin
+          su builder -c 'cd /home/builder && git clone https://aur.archlinux.org/rtk-bin.git && cd rtk-bin && makepkg --syncdeps --noconfirm'
+          pacman -U --noconfirm /home/builder/rtk-bin/*.pkg.tar.zst
+          su builder -c 'cd /home/builder/ptk-bin && makepkg --printsrcinfo > generated.SRCINFO && diff -u .SRCINFO generated.SRCINFO && makepkg --syncdeps --noconfirm && namcap PKGBUILD *.pkg.tar.zst'
+          pacman -U --noconfirm /home/builder/ptk-bin/*.pkg.tar.zst
+          su builder -c 'ptk version && ptk doctor'
+          pacman -R --noconfirm ptk-bin

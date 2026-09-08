@@ -34,8 +34,9 @@ the downloader and digest/provenance checks successfully without altering rc.2.
 - Complete native draft assembly and all twelve-asset integrity checks.
 - Native downloaded install, signatures/notarization, CLI, runtime, SIEM
   workflows, and opt-in uninstall on all five RIDs.
-- Security reporting access/contact, final support policy and release notes,
-  publication, and public bootstrap proof.
+- Final factual release notes, publication, and public bootstrap proof.
+  Existing publishing credentials and the owner's correction to the earlier
+  setup assumptions are recorded in the execution plan.
 - Publish validated Homebrew and Scoop manifests; complete winget upstream
   acceptance; publish AUR using the owner's registered account/key.
 - Verify actual availability in each channel. Submission alone is not release.

@@ -11,6 +11,9 @@ choices, external account prerequisites, and evidence are canonical in
 `.agents/plans/release-0.3.0-rc.3.md`. This supersedes earlier no-publication
 scope for the new release; rc.2 remains frozen and existing sessions must
 survive. Implementation is underway; no new release is published yet.
+The native CLI is committed at `e823781` with all six CI jobs passing in
+`34275489232`. That exact source is building as rc.3 in release run
+`34276660442`; the candidate record is `.agents/release-candidate-0.3.0-rc.3.md`.
 
 **Native redirect hook, 2026-09-08:** implemented and deployed; all six CI
 jobs passed at `2247aae`. The owner's subsequent go enabled and trusted the

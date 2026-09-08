@@ -102,3 +102,15 @@ installed binaries were not replaced or stopped.
 
 The new downloaded-release verification scripts are a separate unfinished
 slice; they are not part of the CLI validation claim.
+
+### Downloaded-release verification slice
+
+Fresh rc.2 Mac/receiver/installer downloads exercised the new read-only
+downloader and verifier: exact candidate source, twelve-asset inventory,
+eleven canonical manifest entries, GitHub digests, all selected archive hashes,
+and both clean native identities passed. Five integrity guards pass locally.
+The new workflow runs the full inventory plus independent native downloads on
+all five RIDs. Its scripts come from the workflow ref, while `source` pins the
+product identity being verified; no checkout-built product is used. Windows
+uses a disposable standard account to retain the real non-elevated uninstall
+gate. Native downloaded-product execution remains pending the new draft.

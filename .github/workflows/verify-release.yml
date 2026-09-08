@@ -1,0 +1,116 @@
+name: Verify downloaded release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact candidate version without v
+        type: string
+        required: true
+      source:
+        description: Full immutable candidate source SHA
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  PTK_RELEASE_VERSION: ${{ inputs.version }}
+  PTK_RELEASE_SOURCE: ${{ inputs.source }}
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Verify all uploaded assets and ten unique build identities
+        shell: pwsh
+        run: |
+          python -B scripts/download-release.py $env:PTK_RELEASE_VERSION $env:PTK_RELEASE_SOURCE "$env:RUNNER_TEMP/downloads"
+          if ($LASTEXITCODE -ne 0) { throw 'Release inventory verification failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-release-inventory
+          path: |
+            ${{ runner.temp }}/downloads/release.json
+            ${{ runner.temp }}/downloads/verified-identities.json
+            ${{ runner.temp }}/downloads/SHA256SUMS
+
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            rtk: rtk-x86_64-pc-windows-msvc.zip
+          - rid: win-arm64
+            os: windows-11-arm
+            rtk: rtk-x86_64-pc-windows-msvc.zip
+          - rid: linux-x64
+            os: ubuntu-latest
+            rtk: rtk-x86_64-unknown-linux-musl.tar.gz
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            rtk: rtk-aarch64-unknown-linux-gnu.tar.gz
+          - rid: osx-arm64
+            os: macos-latest
+            rtk: rtk-aarch64-apple-darwin.tar.gz
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Download and verify exact native archives
+        shell: pwsh
+        env:
+          PTK_RELEASE_RID: ${{ matrix.rid }}
+        run: |
+          python -B scripts/download-release.py $env:PTK_RELEASE_VERSION $env:PTK_RELEASE_SOURCE "$env:RUNNER_TEMP/downloads" --rid $env:PTK_RELEASE_RID
+          if ($LASTEXITCODE -ne 0) { throw 'Native release download verification failed.' }
+      - name: Install RTK for product proof
+        shell: pwsh
+        env:
+          RTK_ASSET: ${{ matrix.rtk }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $destination = Join-Path $env:RUNNER_TEMP 'rtk'
+          New-Item -ItemType Directory $destination | Out-Null
+          $archive = Join-Path $env:RUNNER_TEMP $env:RTK_ASSET
+          Invoke-WebRequest "https://github.com/rtk-ai/rtk/releases/latest/download/$env:RTK_ASSET" -OutFile $archive
+          if ($env:RTK_ASSET.EndsWith('.zip')) {
+            Expand-Archive $archive $destination
+          } else {
+            tar -xzf $archive -C $destination
+            if ($LASTEXITCODE -ne 0) { throw 'RTK extraction failed.' }
+          }
+          $binary = Join-Path $destination ($IsWindows ? 'rtk.exe' : 'rtk')
+          & $binary --version
+          if ($LASTEXITCODE -ne 0) { throw 'RTK cannot run on this native platform.' }
+          "PTK_PROOF_RTK=$binary" >> $env:GITHUB_ENV
+          $destination >> $env:GITHUB_PATH
+      - name: Prove downloaded signatures, installation, CLI, runtime, SIEM, and uninstall
+        shell: pwsh
+        env:
+          PTK_RELEASE_RID: ${{ matrix.rid }}
+        run: |
+          $script = $IsWindows ? 'server/invoke-windows-standard-user-proof.ps1' : 'server/test-downloaded-product.ps1'
+          & $script -DownloadRoot "$env:RUNNER_TEMP/downloads" -Version $env:PTK_RELEASE_VERSION `
+            -SourceCommit $env:PTK_RELEASE_SOURCE -Rid $env:PTK_RELEASE_RID -RtkPath $env:PTK_PROOF_RTK
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: downloaded-proof-${{ matrix.rid }}
+          path: |
+            ${{ runner.temp }}/downloads/verified-identities.json
+            ${{ runner.temp }}/ptkproof*/proof.*.log
+          if-no-files-found: warn

@@ -16,9 +16,9 @@ replays a command whose execution may have started.
 > [!IMPORTANT]
 > The current development branch implements the supervisor, named worker
 > sessions, automatic worker replacement, five-tool MCP surface, output
-> recovery, and production containment described here. PTK has not had a public
-> release. See [`.agents/state.md`](.agents/state.md) for current validation and
-> remaining platform gates.
+> recovery, and production containment described here. Published prereleases
+> can lag this branch. See [GitHub releases](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases)
+> for the behavior and validation of each exact version.
 
 ## Why PTK
 
@@ -268,6 +268,33 @@ installer refuses root/Administrator installation; launching the harness
 elevated still launches PTK elevated.
 
 ## Installation
+
+### Native package command
+
+Starting with 0.3.0-rc.3, the self-contained package includes `bin/ptk`
+(`bin/ptk.exe` on Windows). Package managers expose this command on PATH.
+It uses the embedded PowerShell engine; a separate PowerShell installation
+is not required for these commands:
+
+```text
+ptk version
+ptk doctor
+ptk init --agent codex
+ptk init --agent claude,kimi --dry-run
+ptk uninstall --agent codex
+```
+
+`init` registers the selected harnesses, native redirect hooks, and guidance.
+Use `--all-agents` to select every detected harness. Registration requires an
+explicit selection and takes effect in new harness sessions; Codex separately
+reviews hook trust. RTK must be installed before registration.
+`uninstall` removes selected harness integrations; use the package manager to
+remove package files after closing the sessions that use them. The standalone
+installer below retains its own installation and removal commands.
+
+`ptk serve` and bare `ptk` run the stdio MCP server. `version` and `doctor`
+do not start an MCP connection or scan audit history. `--home PATH` selects
+an alternate package root for setup or diagnostics.
 
 ### Public install
 

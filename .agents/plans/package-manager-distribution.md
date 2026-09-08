@@ -1,8 +1,11 @@
 # Plan: package-manager distribution
 
-**Status: DRAFT. No slice is approved. D1 is the blocking decision and is
-with the owner; every slice below is gated behind it.** Nothing here may be
-implemented before its decision lands. Written 2026-08-07 against head
+**Status: implementation and publication authorized, 2026-09-08.** The owner
+directed completion of the new GitHub and package-manager releases. The
+execution amendment in `.agents/plans/release-0.3.0-rc.3.md` resolves the
+implementation choices below and records external publishing prerequisites.
+The original proposal follows for context; its historical gates and ecosystem
+inventory are superseded by that amendment. Written 2026-08-07 against head
 `3670bd9` (published releases `v0.2.0`, `v0.2.1`).
 
 Goal, in the owner's words: "a real binary release so people don't have to

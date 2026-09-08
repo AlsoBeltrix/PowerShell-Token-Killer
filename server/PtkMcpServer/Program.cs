@@ -16,6 +16,13 @@ if (WorkerProcessEntry.IsWorkerInvocation(args))
     return;
 }
 
+if (OperatorCli.Run(args, Console.Out, Console.Error) is { } cliExitCode)
+{
+    Environment.ExitCode = cliExitCode;
+    return;
+}
+if (args.Length > 0 && args[0] == "serve") args = args[1..];
+
 // RTK is a required dependency: PTK compresses PowerShell objects itself and
 // routes everything else to RTK. Refuse to start rather than come up as a
 // half-working server whose native output is silently unfiltered. stderr,

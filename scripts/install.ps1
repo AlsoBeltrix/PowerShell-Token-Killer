@@ -691,6 +691,14 @@ function New-PtkLayout {
         -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
 
+    # The same native apphost exposes operator verbs as `ptk`; retain the
+    # canonical name for existing registrations and worker process discovery.
+    # Copy before release signing so both Windows/macOS images are signed.
+    $apphostName = $TargetRid.StartsWith('win-') ? 'PtkMcpServer.exe' : 'PtkMcpServer'
+    $cliName = $TargetRid.StartsWith('win-') ? 'ptk.exe' : 'ptk'
+    Copy-Item -LiteralPath (Join-Path $Destination 'bin' $apphostName) `
+        -Destination (Join-Path $Destination 'bin' $cliName)
+
     # The redirect decision needs neither a PowerShell host nor the server's
     # runtime. Publish separately so its intermediate files cannot overwrite
     # the MCP payload; copy only the standalone native executable.

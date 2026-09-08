@@ -5,6 +5,13 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Release publication authorized, 2026-09-08:** the owner directed completion
+of the new GitHub and package-manager releases. Execution, version, package
+choices, external account prerequisites, and evidence are canonical in
+`.agents/plans/release-0.3.0-rc.3.md`. This supersedes earlier no-publication
+scope for the new release; rc.2 remains frozen and existing sessions must
+survive. Implementation is underway; no new release is published yet.
+
 **Native redirect hook, 2026-09-08:** implemented and deployed; all six CI
 jobs passed at `2247aae`. The owner's subsequent go enabled and trusted the
 native hook. A fresh Codex session in `roon-controller` proved normal shell

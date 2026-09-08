@@ -34,6 +34,8 @@ $payload = Join-Path $testRoot 'home'
 $snapshot = Join-Path $testRoot 'snapshot'
 $registration = Join-Path $testRoot 'registration.toml'
 
+& (Join-Path $serverDir 'test-operator-cli.ps1') -LayoutRoot $layout
+
 function Invoke-LayoutHandshake {
     param([Parameter(Mandatory)][string]$Root)
     $hook = Join-Path $Root 'bin' ($IsWindows ? 'ptk-hook.exe' : 'ptk-hook')

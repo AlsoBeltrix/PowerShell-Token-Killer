@@ -1521,27 +1521,10 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
                         throw new IOException("A retained audit segment has a torn tail.");
                     stream.Position = 0;
 
-                    // Segment capacity is operator-configurable up to 4 GiB;
-                    // validate as bounded records instead of allocating the
-                    // whole retained segment. Individual records are capped at
-                    // MaxRecordBytes by the serializer contract.
-                    var recordBuffer = new byte[_options.MaxRecordBytes];
-                    var recordLength = 0;
-                    while (stream.Position < stream.Length)
+                    foreach (var recordBytes in ReadRetainedRecords(stream, _options.MaxRecordBytes))
                     {
-                        var value = stream.ReadByte();
-                        if (value < 0)
-                            throw new IOException("A retained audit segment ended unexpectedly.");
-                        if (value != (byte)'\n')
-                        {
-                            if (recordLength >= recordBuffer.Length)
-                                throw new IOException("A retained audit record exceeds its configured bound.");
-                            recordBuffer[recordLength++] = (byte)value;
-                            continue;
-                        }
-
                         var record = AuditSpoolRecordCodec.Parse(
-                            recordBuffer.AsSpan(0, recordLength),
+                            recordBytes.Span,
                             item.BootId);
                         if (priorSequence is long sequence)
                         {
@@ -1565,13 +1548,50 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
 
                         priorSequence = record.Sequence;
                         priorHash = record.EventHash;
-                        recordLength = 0;
                     }
-                    if (recordLength != 0)
-                        throw new IOException("A retained audit segment has a torn tail.");
                 }
             }
         }
+    }
+
+    // Returned memory is reused: consume each record before advancing.
+    internal static IEnumerable<ReadOnlyMemory<byte>> ReadRetainedRecords(
+        Stream stream,
+        int maxRecordBytes)
+    {
+        // The caller holds the closed segment and topology lease. Snapshot
+        // its remaining length once: FileStream.Length can issue fstat on
+        // every access. Keep memory bounded independently of segment size.
+        var remaining = stream.Length - stream.Position;
+        var readBuffer = new byte[16 * 1024];
+        var recordBuffer = new byte[maxRecordBytes];
+        var recordLength = 0;
+        while (remaining > 0)
+        {
+            var read = stream.Read(readBuffer, 0, (int)Math.Min(readBuffer.Length, remaining));
+            if (read == 0)
+                throw new IOException("A retained audit segment ended unexpectedly.");
+            remaining -= read;
+
+            for (var offset = 0; offset < read;)
+            {
+                var newline = readBuffer.AsSpan(offset, read - offset).IndexOf((byte)'\n');
+                var length = newline < 0 ? read - offset : newline;
+                if (length > recordBuffer.Length - recordLength)
+                    throw new IOException("A retained audit record exceeds its configured bound.");
+                readBuffer.AsSpan(offset, length).CopyTo(recordBuffer.AsSpan(recordLength));
+                recordLength += length;
+                offset += length;
+                if (newline < 0)
+                    continue;
+
+                offset++;
+                yield return recordBuffer.AsMemory(0, recordLength);
+                recordLength = 0;
+            }
+        }
+        if (recordLength != 0)
+            throw new IOException("A retained audit segment has a torn tail.");
     }
 
     private static bool TryOpenClosedSegment(FileInfo segment, out FileStream? stream)

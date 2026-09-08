@@ -3,6 +3,31 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha-2.local` PowerShell verification runtime failure (2026-09-08)
+
+- During the buffered-audit-startup repair, Homebrew PowerShell 7.6.5 at
+  `/opt/homebrew/Cellar/powershell/7.6.5/libexec/pwsh` aborted with exit 134
+  (`SIGABRT`) before executing a version query. The error was
+  `System.IO.FileLoadException: The given assembly name was invalid`, naming
+  a malformed `System.Collections.Concurrent` assembly identity. Both the
+  inherited worker environment and a minimal HOME/PATH/TMPDIR/LANG environment
+  reproduced it. The cause of the system installation failure is unverified.
+- This prevented Pester, the lifecycle script, and the handshake from starting,
+  and caused two otherwise unrelated server cases to fail: installer rollback
+  and native UTF-8 output through external `pwsh`. The first server run passed
+  1,373/1,375; the complete SIEM suite passed 357/357.
+- Verification used a temporary, uninstalled official PowerShell 7.6.3
+  osx-arm64 archive after checking it against the release's `hashes.sha256`:
+  `f0263c2072fe7d0953781c60497a574bea99b37237f2554a59ce4bad07de8d36`.
+  Only validation child processes received its PATH entry, with inherited
+  `PSModulePath` removed as in the existing worker-environment diagnosis.
+  No system installation or test gate was changed. The three focused
+  installer/stdio tests passed, Pester passed 116 with 3 platform skips,
+  lifecycle passed, and the full registration handshake passed.
+- Repair results and complete verification are canonical in
+  `.agents/plans/buffered-audit-startup.md`. The live PTK installation still
+  carries the earlier build until a separate installation go.
+
 ## `nagatha-2.local` unique build identity proof (2026-09-04)
 
 - Host: macOS 26.6.2 build 25G83 arm64, .NET SDK 10.0.400, PowerShell 7.6.5.

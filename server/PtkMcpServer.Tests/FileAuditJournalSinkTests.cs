@@ -359,6 +359,50 @@ public sealed class FileAuditJournalSinkTests : IDisposable
             () => BaseTime));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Startup_validates_hash_chain_beyond_the_first_read_block(bool breakChain)
+    {
+        var options = Options(NewRoot(), segmentSlots: 64, aggregateSegments: 4);
+        var health = new AuditHealth(options, () => BaseTime);
+        var sink = new FileAuditJournalSink(options, BootId, () => BaseTime);
+        var path = sink.CurrentSegmentPath;
+        SerializedAuditEvent? first = null;
+        using (var journal = Journal(options, health, sink, BootId))
+        {
+            for (var index = 0; index < 40; index++)
+            {
+                Assert.True(journal.TryReserve(1, out var lease, out _));
+                var record = journal.Append(lease!, Input("call.accepted"));
+                first ??= record;
+                lease!.Release();
+            }
+        }
+        Assert.True(new FileInfo(path).Length > 16 * 1024);
+        if (breakChain)
+        {
+            // A valid, hashed record at the end still has to link to its
+            // predecessor; parsing only the first block must not pass.
+            using var append = new FileStream(path, FileMode.Append, FileAccess.Write);
+            append.Write(first!.Value.Utf8Line.Span);
+        }
+
+        if (breakChain)
+        {
+            var exception = Assert.Throws<IOException>(() =>
+            {
+                using var _ = new FileAuditJournalSink(options, Guid.NewGuid(), () => BaseTime);
+            });
+            Assert.Contains("hash chain is discontinuous", exception.Message);
+        }
+        else
+        {
+            using var reopened = new FileAuditJournalSink(options, Guid.NewGuid(), () => BaseTime);
+            Assert.True(File.Exists(path));
+        }
+    }
+
     [Fact]
     public void Startup_rejects_an_empty_intermediate_retained_segment()
     {

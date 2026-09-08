@@ -5,6 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Buffered audit startup repair, 2026-09-08:** owner-approved implementation
+and verification are complete. The local
+startup probe improved from 27.933 seconds to 5.096 seconds with the existing
+history and healthy audit. Scope, exact measured builds, validation results,
+and limitations are canonical in `.agents/plans/buffered-audit-startup.md`.
+The system PowerShell startup failure and isolated verification runtime are
+recorded in `.agents/machines.md`. This repair does not alter the installed
+PTK build or the frozen rc.2 candidate.
+
 **Handoff checkpoint as of `2fa49d9`:** the checksum-only correction is complete,
 verified, committed, and pushed. No candidate build or local proof remains in
 flight; the working tree was clean before this bookkeeping snapshot. Resume
@@ -88,6 +97,10 @@ and uninstall proof.
 
 ## Next
 
+- Startup repair: apply the verified change through a local installation
+  after an owner-approved stop of active PTK runtime processes; see
+  `.agents/plans/buffered-audit-startup.md`. Current MCP sessions still run
+  the earlier installed binary.
 - Next session: identify an available matching-native Windows/Linux test host
   and continue the remaining downloaded-package installation/lifecycle and
   Windows signature checks listed in the candidate record. Keep corrected

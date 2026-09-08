@@ -5,14 +5,14 @@ short and update it when important repo facts change.
 
 ## Now
 
-**Native redirect hook, 2026-09-08:** implemented, verified, and deployed to
-the existing Codex hook registration without stopping sessions. Per-call
-PowerShell startup is replaced by a standalone native decision handler;
-local median launch time fell from 303.63 ms to 7.52 ms. All 29 existing PTK
-processes and this session's warm state survived; Codex MCP and hook
-disabled/trust settings are unchanged. Scope and verification are canonical
-in `.agents/plans/native-redirect-hook.md`; local deployment and backup are
-in `.agents/machines.md`. The frozen rc.2 candidate is unchanged.
+**Native redirect hook, 2026-09-08:** implemented and deployed; all six CI
+jobs passed at `2247aae`. The owner's subsequent go enabled and trusted the
+native hook. A fresh Codex session in `roon-controller` proved normal shell
+denial and PTK_DIRECT execution; PTK command execution and a client-issued
+health read passed. All 29 existing PTK processes and this connection's warm
+state survived. Scope, timing, and verification limits are canonical in
+`.agents/plans/native-redirect-hook.md`; local activation and backup are in
+`.agents/machines.md`. The frozen rc.2 candidate is unchanged.
 
 **Buffered audit startup repair, 2026-09-08:** owner-approved implementation
 and verification are complete. The owner then required a solution without

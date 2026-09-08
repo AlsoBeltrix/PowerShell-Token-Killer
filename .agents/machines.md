@@ -16,13 +16,23 @@ entries during a `drift` pass.
   `/Users/michael/.codex/hooks.json.native-hook-20260908-5d6d7a75.bak`.
   Foreign handlers and formatting were preserved. No Claude or Kimi hook
   config existed at the standard paths on this host.
-- `/Users/michael/.codex/config.toml` stayed byte-identical (SHA-256
+- At initial hook deployment, `/Users/michael/.codex/config.toml` stayed byte-identical (SHA-256
   `1cb5159cd4dc2c85fd59bc6b97e1766d376421d5f7acd2a81fea8081b1bd749a`),
   including the PTK hook's `enabled = false` and existing trust hashes.
-  No hook was enabled or trust-approved programmatically. Already-running
-  harnesses may retain their previously loaded hook command.
+  Activation was separately approved afterward, as recorded below.
+- On the owner's subsequent go, Codex app-server `config/batchWrite` set
+  `/Users/michael/.codex/hooks.json:pre_tool_use:0:0` to `enabled = true` and
+  `trusted_hash = "sha256:e470277d6c5b09997bf93c5adeb982532e59e0048b1be9dbbd5f8b5ebafb6e1c"`.
+  Codex 0.153.4 supplied this exact-definition hash through `hooks/list`,
+  which confirmed `trustStatus = trusted` and `enabled = true` afterward.
+  The only changed config values were those two PTK hook fields; MCP
+  registration and foreign hook states were preserved. Prior config backup:
+  `/Users/michael/.codex/config.toml.native-hook-enable-20260908-155309.bak`.
+  No global trust-bypass setting or invocation flag was used. Already-running
+  harnesses may retain their previously loaded hook configuration.
 - All 29 pre-existing processes using the original or alternate PTK runtime
-  paths retained their PID, start time, and command across the hook switch.
+  paths retained their PID, start time, and command across both the hook
+  switch and the later enable/trust/live-test operation.
   This connection's worker PID 91584 retained its warm continuity marker.
   Original MCP DLL SHA-256 remained
   `b17f98a99ff0e01098e3a4c110c38d8dbbe639803c8dbfaa26ef01cd6b910573`;

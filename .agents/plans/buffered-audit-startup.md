@@ -8,7 +8,10 @@ The owner approved replacing byte-at-a-time retained audit validation with
 buffered reads after the measured startup investigation. Preserve the existing
 record bounds, JSON/hash-chain validation, protected-file handling, retention
 policy, and startup ordering. This is one repair slice; it does not authorize
-a live installation, candidate replacement, or release.
+a live installation, candidate replacement, or release. The subsequent
+owner instruction to keep running sessions alive authorized the local
+configuration workaround recorded below; the in-place installer guard remains
+unchanged.
 
 ## Evidence
 
@@ -68,7 +71,38 @@ heavy filesystem metadata activity.
   both original test environments and under a PTY. The earlier child-launch
   failures do not establish that the system installation is broken; their
   cause remains unknown. No runtime replacement was required for this recheck.
-- No release package, installed-product proof, or Windows/Linux execution
-  was performed for this slice. The installed payload and rc.2 artifacts
-  remain unchanged. Applying the repair locally requires a later installation
-  and the runtime stop required by `.agents/plans/stop-before-install.md`.
+- The initial repair did not produce a package or perform Windows/Linux
+  execution. Its later local packaged proof is recorded below. The original
+  installed payload and rc.2 artifacts remain unchanged.
+
+## Follow-up: new connections while existing sessions remain running
+
+On 2026-09-08 the owner reported another repository's 30-second MCP startup
+timeout, then explicitly required an alternative that does not stop running
+sessions. This is a one-time local launch-configuration workaround, not a
+new upgrade/retained-version system or a bypass of the in-place install guard.
+
+- Built the canonical `-LayoutOnly -Validate` osx-arm64 layout from clean
+  `ae23c00`; the complete packaged handshake and all 30 direct-product checks
+  with `-RequireCleanSource` passed. Exact package identity:
+  `0.3.0-dev.gae23c00+ae23c00.build.f91a1a3eff31407db1f980f20b11c9a2`.
+- The separate executable initialized in 4.925 seconds from
+  `/Users/michael/Dev/roon-controller` with the existing audit history,
+  reported healthy local-only audit, successfully executed a worker command,
+  and exited normally when the probe closed its own stdin.
+- Codex's global PTK registration now points at this fixed layout and has a
+  90-second startup allowance for contention with older supervisors. Exact
+  host paths and backup live in `.agents/machines.md`. The Codex configuration
+  loader read back the expected command and timeout; all other TOML values
+  were preserved and the prior file was backed up before atomic replacement.
+- All 14 pre-existing PTK server/worker PIDs remained present after the
+  switch. The original installed server DLL hash was unchanged. The current
+  connection retained its original supervisor, worker, and warm-state marker.
+- New Codex connections use the repair. Existing connections retain their
+  existing workers; an already-failed connection does not gain tools merely
+  because the configuration file changed. No old PTK session was stopped,
+  reset, or migrated. Do not remove or overwrite the separate layout while
+  it is registered or in use. A later ordinary in-place installation still
+  follows `.agents/plans/stop-before-install.md`.
+
+Configuration reference: [official OpenAI MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).

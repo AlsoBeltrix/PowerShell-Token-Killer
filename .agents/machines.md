@@ -3,6 +3,25 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha-2.local` alternate PTK launch path (2026-09-08)
+
+- The owner required new connections to work without stopping existing PTK
+  sessions. The fixed canonical layout is at
+  `/Users/michael/.ptk-local/ae23c00-20260908`; it is separate from the
+  still-running `/Users/michael/.ptk` installation. Build identity, product
+  proof, timing, and continuity evidence are canonical in
+  `.agents/plans/buffered-audit-startup.md`.
+- `/Users/michael/.codex/config.toml` now sets `[mcp_servers.ptk].command` to
+  `/Users/michael/.ptk-local/ae23c00-20260908/bin/PtkMcpServer`, with
+  `startup_timeout_sec = 90`. No other configuration values changed.
+  The exact prior configuration is backed up at
+  `/Users/michael/.codex/config.toml.ptk-startup-20260908-a31230aa.bak`.
+- Existing PTK sessions were preserved. Keep the alternate directory intact
+  while configured or running. Do not restore the entire config backup over
+  later user edits; any future rollback must preserve intervening changes.
+  Only Codex's registration was switched; other harness registrations were
+  not changed by this workaround.
+
 ## `nagatha-2.local` PowerShell child-launch failures and successful recheck (2026-09-08)
 
 - During the initial buffered-audit-startup verification, child processes
@@ -35,8 +54,8 @@ entries during a `drift` pass.
   PowerShell 7.6.5. The reason for the earlier failures remains unknown.
   The earlier claim that the system's PowerShell crashes was too broad.
 - Repair results and complete verification are canonical in
-  `.agents/plans/buffered-audit-startup.md`. The live PTK installation still
-  carries the earlier build until a separate installation go.
+  `.agents/plans/buffered-audit-startup.md`; the alternate Codex launch path
+  above now supplies the repair to new connections.
 
 ## `nagatha-2.local` unique build identity proof (2026-09-04)
 

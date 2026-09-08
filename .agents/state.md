@@ -6,10 +6,14 @@ short and update it when important repo facts change.
 ## Now
 
 **Buffered audit startup repair, 2026-09-08:** owner-approved implementation
-and verification are complete. The local
-startup probe improved from 27.933 seconds to 5.096 seconds with the existing
-history and healthy audit. Scope, exact measured builds, validation results,
-and limitations are canonical in `.agents/plans/buffered-audit-startup.md`.
+and verification are complete. The owner then required a solution without
+stopping existing sessions: new Codex connections now launch a separately
+packaged repaired build, which initialized in 4.925 seconds against the
+existing history from `roon-controller`. All existing PTK PIDs and this
+connection's warm state survived the configuration switch. The original
+installed directory remains unchanged. Scope, exact builds, validation,
+and limitations are canonical in `.agents/plans/buffered-audit-startup.md`;
+host paths and configuration backup are in `.agents/machines.md`.
 The earlier PowerShell child-launch failures and subsequent successful
 verification with the normal PowerShell 7.6.5 installation are
 recorded in `.agents/machines.md`. This repair does not alter the installed
@@ -98,10 +102,11 @@ and uninstall proof.
 
 ## Next
 
-- Startup repair: apply the verified change through a local installation
-  after an owner-approved stop of active PTK runtime processes; see
-  `.agents/plans/buffered-audit-startup.md`. Current MCP sessions still run
-  the earlier installed binary.
+- Startup repair: new Codex connections use the separate repaired runtime.
+  Leave existing sessions running and preserve that runtime directory. A
+  previously failed connection needs a fresh connection to read the new
+  registration; do not stop other sessions to make this happen. See
+  `.agents/plans/buffered-audit-startup.md`.
 - Next session: identify an available matching-native Windows/Linux test host
   and continue the remaining downloaded-package installation/lifecycle and
   Windows signature checks listed in the candidate record. Keep corrected

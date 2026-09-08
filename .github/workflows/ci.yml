@@ -24,6 +24,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Install NativeAOT build prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
       # RTK is a required PTK dependency: the server refuses to start without
       # it, so any job that launches the server needs a real rtk on PATH.
       # Upstream's install.sh covers Linux/macOS only; Windows takes the

@@ -249,7 +249,7 @@ answer. It preserves unrelated hooks and replaces only the ptk-owned entry
 when re-run. The hook takes effect at the next Claude Code session start.
 
 Failure semantics, precisely: the hook fails open only against its OWN
-failure — if the hook script is missing or errors, harness shell calls
+failure — if the hook executable is missing or errors, harness shell calls
 proceed normally. A down server does not fail open: shell calls are still
 denied — but the hook checks for a running server process, and when none
 exists the deny guidance says so and points at `PTK_DIRECT` up front
@@ -258,10 +258,10 @@ way through until the harness has replaced the dead MCP transport. The hook
 cannot restart that transport itself; production deployment must verify the
 intended harness's reconnect behavior.
 
-The missing-script fail-open is exactly what a **stale registration**
+The missing-executable fail-open is exactly what a **stale registration**
 produces: an entry written from a checkout that later moved fails open
 silently on every shell call. The installer registers the installed copy
-(`~/.ptk/scripts/ptk-hook.ps1`) to make that class structurally rare, and
+(`~/.ptk/bin/ptk-hook`, or `ptk-hook.exe` on Windows) to make that class structurally rare, and
 `ptk_init.ps1 -Show` flags a registered target that no longer exists. Two
 heal paths: re-running `ptk_init.ps1`, or a `install.ps1` install —
 the latter refreshes an existing hook entry only when it also registered

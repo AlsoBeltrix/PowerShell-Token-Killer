@@ -691,6 +691,21 @@ function New-PtkLayout {
         -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
 
+    # The redirect decision needs neither a PowerShell host nor the server's
+    # runtime. Publish separately so its intermediate files cannot overwrite
+    # the MCP payload; copy only the standalone native executable.
+    $hookPublish = Join-Path ([IO.Path]::GetTempPath()) ("ptk-hook-publish-{0}" -f [guid]::NewGuid())
+    try {
+        dotnet publish (Join-Path $repoRoot 'server' 'PtkHook') `
+            -c Release -r $TargetRid -o $hookPublish -v q --nologo | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Native redirect hook publish failed.' }
+        $hookName = $TargetRid.StartsWith('win-') ? 'ptk-hook.exe' : 'ptk-hook'
+        Copy-Item -LiteralPath (Join-Path $hookPublish $hookName) -Destination (Join-Path $Destination 'bin' $hookName)
+    }
+    finally {
+        Remove-Item -LiteralPath $hookPublish -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
     $src = New-Item -ItemType Directory -Path (Join-Path $Destination 'src') -Force
     foreach ($f in 'PwshTokenCompressor.psd1', 'PwshTokenCompressor.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'src' $f) -Destination $src.FullName
@@ -699,7 +714,7 @@ function New-PtkLayout {
         -ManifestPath (Join-Path $src.FullName 'PwshTokenCompressor.psd1') `
         -PayloadVersion $PayloadVersion
     $scripts = New-Item -ItemType Directory -Path (Join-Path $Destination 'scripts') -Force
-    foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'ptk-audit-destination.ps1', 'install.ps1',
+    foreach ($f in 'ptk_init.ps1', 'ptk-audit-destination.ps1', 'install.ps1',
         'ptk_install_transaction.psm1', 'ptk_build_provenance.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }
@@ -907,7 +922,8 @@ function Test-PtkHookEntryPresent {
     foreach ($entry in @($config['hooks']['PreToolUse'])) {
         if ($null -eq $entry) { continue }
         foreach ($hook in @($entry['hooks'])) {
-            if ($null -ne $hook -and [string]$hook['command'] -like '*ptk-hook.ps1*') { return $true }
+            if ($null -ne $hook -and [string]$hook['command'] -match
+                '(?:^|[/\\\s"''])ptk-hook(?:\.ps1|\.exe)?(?=$|[\s"''])') { return $true }
         }
     }
     $false

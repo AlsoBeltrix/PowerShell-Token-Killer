@@ -36,6 +36,21 @@ $registration = Join-Path $testRoot 'registration.toml'
 
 function Invoke-LayoutHandshake {
     param([Parameter(Mandatory)][string]$Root)
+    $hook = Join-Path $Root 'bin' ($IsWindows ? 'ptk-hook.exe' : 'ptk-hook')
+    if (-not (Test-Path -LiteralPath $hook -PathType Leaf)) {
+        throw "Published native hook is missing: $hook"
+    }
+    $savedPath = $env:PATH
+    try {
+        # Absolute native executable must answer even without any shell on PATH.
+        $env:PATH = $Root
+        $decision = '{"tool_input":{"command":"git status"}}' | & $hook
+        if ($LASTEXITCODE -ne 0 -or
+            ($decision | ConvertFrom-Json).hookSpecificOutput.permissionDecision -cne 'deny') {
+            throw "Published native hook did not deny the shell call: $hook"
+        }
+    }
+    finally { $env:PATH = $savedPath }
     $binary = Join-Path $Root 'bin' $binaryName
     & pwsh -NoProfile -File $handshake `
         -ServerCommand $binary `

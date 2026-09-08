@@ -406,7 +406,16 @@ machines. v0.2.0 predates the Windows and macOS signing described above.
 ### Installing from source
 
 Omit `-FromRelease` to build and install this checkout instead. That path
-additionally needs the .NET SDK.
+additionally needs the .NET SDK and the [NativeAOT build prerequisites](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/):
+Clang and zlib development headers on Linux, Xcode Command Line Tools on macOS,
+or Visual Studio's Desktop development with C++ workload on Windows (including
+ARM64 tools when building win-arm64).
+
+The redirect hook is a standalone native `bin/ptk-hook` (`ptk-hook.exe` on
+Windows). Each hook call reads JSON and returns a deny decision with guidance;
+it never starts PowerShell or executes the submitted command. `PTK_DIRECT`
+still allows an explicit harness-shell call. Setup replaces legacy PowerShell
+hook registrations with the native executable.
 
 ```powershell
 pwsh -NoProfile -File scripts/install.ps1

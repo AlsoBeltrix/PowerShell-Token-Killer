@@ -16,7 +16,7 @@ claude, codex, grok, agy, kimi.
 kimi leg: registration by direct merge into <kimi-home>/mcp.json (no
 scriptable kimi CLI surface exists - /mcp-config is TUI-only), a PreToolUse
 deny hook in <kimi-home>/config.toml ([[hooks]] matcher "Bash", kimi's shell
-tool; the documented hook protocol accepts ptk-hook.ps1's stdout deny JSON
+tool; the documented hook protocol accepts ptk-hook's stdout deny JSON
 verbatim), and the shared nudge block in <kimi-home>/AGENTS.md, the
 documented global instruction file. Kimi home is $KIMI_CODE_HOME when set,
 else ~/.kimi-code. The hook is gated like claude's: it steers shell calls at
@@ -34,7 +34,7 @@ so re-installs never collide), checks the installed payload (~/.ptk) and
 refuses registration and the hook when it is missing - a redirect hook
 without a server steers every shell call at a tool that cannot answer; run
 scripts/install.ps1 first. Installs one PreToolUse entry (matcher
-"Bash|PowerShell") running scripts/ptk-hook.ps1 (deny-with-guidance;
+"Bash|PowerShell") running bin/ptk-hook[.exe] (deny-with-guidance;
 PTK_DIRECT in a command is the escape hatch) and the ptk guidance block in
 ~/.claude/CLAUDE.md (standard layer, no opt-in - it is also grok's nudge
 home). Existing hooks - including rtk's own Bash rewrite hook - are
@@ -138,22 +138,32 @@ if ($Agent -and $SkipAgent) {
 
 # The marker every ptk-owned settings entry is recognized by (install, show,
 # uninstall).
-$hookMarker = 'ptk-hook.ps1'
+$hookMarker = '(?:^|[/\\\s"''])ptk-hook(?:\.ps1|\.exe)?(?=$|[\s"''])'
 # Register the INSTALLED copy whenever it exists: checkouts move and get
 # renamed, stranding registrations that then fail open silently on every
 # shell call (issue #2). The checkout sibling is only the fallback for
-# payload-less runs (test seams).
-$installedHook = Join-Path $PtkHome 'scripts' 'ptk-hook.ps1'
-# -PathType Leaf: a DIRECTORY at the script path would satisfy a bare
-# Test-Path and re-create the silent fail-open (pwsh -File <dir>) (i2-3).
-$hookScript = (Test-Path -LiteralPath $installedHook -PathType Leaf) ? $installedHook : (Join-Path $PSScriptRoot 'ptk-hook.ps1')
-$hookCommand = 'pwsh -NoProfile -File "{0}"' -f $hookScript
+# source development after publishing PtkHook for the current RID.
+$hookName = $IsWindows ? 'ptk-hook.exe' : 'ptk-hook'
+$installedHook = Join-Path $PtkHome 'bin' $hookName
+$checkoutHook = Join-Path $PSScriptRoot '..' 'server' 'PtkHook' 'bin' 'Release' 'net10.0' `
+    ([Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier) 'publish' $hookName
+$hookExecutable = (Test-Path -LiteralPath $installedHook -PathType Leaf) ? $installedHook : $checkoutHook
+$hookCommand = '"{0}"' -f ([IO.Path]::GetFullPath($hookExecutable))
 
-# The -File target of a ptk-owned hook command, for staleness checks; $null
+function Assert-PtkHookAvailable {
+    if (-not $DryRun -and -not (Test-Path -LiteralPath $hookExecutable -PathType Leaf)) {
+        throw "Native redirect hook missing: $hookExecutable. Install a complete PTK package or publish server/PtkHook in Release for this machine's RID."
+    }
+}
+
+# The native executable or legacy -File target, for staleness checks; $null
 # when the shape is unrecognized.
 function Get-PtkHookCommandTarget {
     param([string]$Command)
-    ([string]$Command -match '-File\s+"([^"]+)"') ? $Matches[1] : $null
+    if ($Command -match '-File\s+"([^"]+)"') { return $Matches[1] }
+    if ($Command -match '^\s*"([^"]+)"\s*$') { return $Matches[1] }
+    if ($Command -match '^\S+$') { return $Command }
+    return $null
 }
 
 # Markers delimiting the ptk-owned block in a nudge (guidance) file. The
@@ -213,7 +223,7 @@ function Read-PtkSettings {
 function Test-PtkEntry {
     param([object]$Entry)
     foreach ($hook in @($Entry['hooks'])) {
-        if ($null -ne $hook -and [string]$hook['command'] -like "*$hookMarker*") { return $true }
+        if ($null -ne $hook -and [string]$hook['command'] -match $hookMarker) { return $true }
     }
     $false
 }
@@ -352,7 +362,7 @@ function Invoke-PtkClaudeLeg {
     # name them when an install replaces them.
     $staleTargets = @(foreach ($entry in $preToolUse) {
         foreach ($hook in @($entry['hooks'])) {
-            if ($null -ne $hook -and [string]$hook['command'] -like "*$hookMarker*") {
+            if ($null -ne $hook -and [string]$hook['command'] -match $hookMarker) {
                 $hookTarget = Get-PtkHookCommandTarget ([string]$hook['command'])
                 # Leaf: a directory at the target still fails open (i2-3).
                 if ($hookTarget -and -not (Test-Path -LiteralPath $hookTarget -PathType Leaf)) { $hookTarget }
@@ -374,7 +384,7 @@ function Invoke-PtkClaudeLeg {
             $registration = ($LASTEXITCODE -eq 0) ? 'REGISTERED' : 'not registered'
         }
         Write-Host "[claude] registration: $registration (user scope)"
-        Write-Host "[claude] hook script: $hookScript $((Test-Path -LiteralPath $hookScript) ? '' : '(MISSING)')"
+        Write-Host "[claude] hook executable: $hookExecutable $((Test-Path -LiteralPath $hookExecutable -PathType Leaf) ? '' : '(MISSING)')"
         Write-Host ("[claude] nudge block: {0} in {1}" -f ($nudgePresent ? 'INSTALLED' : 'not installed'), $nudgeTarget)
         Write-Host ("[claude] installed payload: {0} ({1})" -f
             ($payloadPresent ? 'present' : 'MISSING - run scripts/install.ps1'), $PtkHome)
@@ -468,7 +478,7 @@ function Invoke-PtkClaudeLeg {
         # install and uninstall.
         $preToolUse = @(foreach ($entry in $preToolUse) {
             $kept = @(@($entry['hooks']) | Where-Object {
-                $null -ne $_ -and [string]$_['command'] -notlike "*$hookMarker*"
+                $null -ne $_ -and [string]$_['command'] -notmatch $hookMarker
             })
             if ($kept.Count -gt 0) {
                 $entry['hooks'] = $kept
@@ -477,6 +487,7 @@ function Invoke-PtkClaudeLeg {
         })
 
         if (-not $Uninstall) {
+            Assert-PtkHookAvailable
             $preToolUse += @{
                 matcher = 'Bash|PowerShell'
                 hooks   = @(@{ type = 'command'; command = $hookCommand })
@@ -605,7 +616,7 @@ function Update-PtkCodexHook {
         $retainedHooks = [System.Collections.Generic.List[object]]::new()
         foreach ($handler in @($entry['hooks'])) {
             $owned = ($handler -is [System.Collections.IDictionary]) -and
-                ([string]$handler['command'] -like "*$hookMarker*")
+                ([string]$handler['command'] -match $hookMarker)
             if ($owned) {
                 $ownedCount++
             }
@@ -626,6 +637,7 @@ function Update-PtkCodexHook {
 
     $preToolUse = @($retainedEntries)
     if (-not $Remove) {
+        Assert-PtkHookAvailable
         $preToolUse += @{
             matcher = 'Bash'
             hooks = @(@{ type = 'command'; command = $hookCommand })
@@ -1003,7 +1015,7 @@ function Invoke-PtkAgyLeg {
 # shared nudge block in <kimi-home>/AGENTS.md (documented global instruction
 # file). The kimi hook protocol passes the same stdin shape the claude hook
 # reads (tool_input.command) and accepts the same stdout deny JSON
-# ptk-hook.ps1 already emits, so the one hook script serves both harnesses.
+# ptk-hook emits, so the same native executable serves both harnesses.
 # Kimi's matcher targets its shell tool by name: "Bash" (there is no
 # PowerShell tool). Hook failure on the kimi side is fail-open by design
 # (documented), matching the nudge's conditional wording.
@@ -1045,7 +1057,10 @@ function Get-PtkKimiHookTarget {
         # Undo the TOML basic-string escaping (hcc-3) before shape-parsing,
         # or Windows backslashes read back doubled and every install looks
         # stale.
-        return Get-PtkHookCommandTarget ($Matches[1] -replace '\\(.)', '$1')
+        $block = $Matches[1]
+        if ($block -match '(?m)^command\s*=\s*"((?:\\.|[^"\\])*)"\s*$') {
+            return Get-PtkHookCommandTarget ($Matches[1] -replace '\\(.)', '$1')
+        }
     }
     $null
 }
@@ -1193,6 +1208,7 @@ function Invoke-PtkKimiLeg {
     }
     else {
         $kept = Get-PtkKimiHookStripped $configText
+        Assert-PtkHookAvailable
         $nl = [Environment]::NewLine
         $content = ($kept ? ($kept + $nl + $nl) : '') + $kimiHookBlock.Trim() + $nl
         $dir = Split-Path -Parent $configPath

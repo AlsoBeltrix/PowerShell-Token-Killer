@@ -57,6 +57,10 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Install NativeAOT build prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
       - name: Resolve version
         id: version
         shell: pwsh

@@ -280,13 +280,17 @@ Describe 'object routing robustness' {
 
 Describe 'redirect hook and installer' {
     BeforeAll {
-        $script:hookScript = Join-Path $PSScriptRoot '..' 'scripts' 'ptk-hook.ps1'
+        $hookProject = Join-Path $PSScriptRoot '..' 'server' 'PtkHook'
+        $hookRid = [Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
+        dotnet publish $hookProject -c Release -r $hookRid -v q --nologo | Out-Host
+        if ($LASTEXITCODE -ne 0) { throw 'Native hook publish failed.' }
+        $script:hookScript = Join-Path $hookProject 'bin' 'Release' 'net10.0' $hookRid 'publish' ($IsWindows ? 'ptk-hook.exe' : 'ptk-hook')
         $script:initScript = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_init.ps1'
     }
 
     It 'denies a shell tool call with harness-neutral guidance naming ptk_invoke' {
         $out = '{"tool_name":"Bash","tool_input":{"command":"git status"}}' |
-            pwsh -NoProfile -File $script:hookScript
+            & $script:hookScript
         $LASTEXITCODE | Should -Be 0
 
         $decision = ($out | ConvertFrom-Json).hookSpecificOutput
@@ -307,7 +311,7 @@ Describe 'redirect hook and installer' {
         $env:PTK_HOOK_LIVENESS = 'down'
         try {
             $out = '{"tool_name":"Bash","tool_input":{"command":"git status"}}' |
-                pwsh -NoProfile -File $script:hookScript
+                & $script:hookScript
         }
         finally { Remove-Item env:PTK_HOOK_LIVENESS -ErrorAction SilentlyContinue }
 
@@ -320,7 +324,7 @@ Describe 'redirect hook and installer' {
         $env:PTK_HOOK_LIVENESS = 'up'
         try {
             $out = '{"tool_name":"Bash","tool_input":{"command":"git status"}}' |
-                pwsh -NoProfile -File $script:hookScript
+                & $script:hookScript
         }
         finally { Remove-Item env:PTK_HOOK_LIVENESS -ErrorAction SilentlyContinue }
 
@@ -332,7 +336,7 @@ Describe 'redirect hook and installer' {
         # The warm runspace keeps its own current directory; without the cwd
         # a replayed relative-path command can run in the wrong place.
         $out = '{"tool_name":"Bash","tool_input":{"command":"dotnet test"},"cwd":"C:\\repo\\server"}' |
-            pwsh -NoProfile -File $script:hookScript
+            & $script:hookScript
 
         $reason = ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecisionReason
         $reason | Should -Match ([regex]::Escape("Set-Location 'C:\repo\server'"))
@@ -348,7 +352,7 @@ Describe 'redirect hook and installer' {
 
     It 'escapes apostrophes in the cwd so the suggested prefix stays valid PowerShell' {
         $out = '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"C:\\Users\\O''Brien\\repo"}' |
-            pwsh -NoProfile -File $script:hookScript
+            & $script:hookScript
 
         $reason = ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecisionReason
         $reason | Should -Match ([regex]::Escape("Set-Location 'C:\Users\O''Brien\repo'"))
@@ -356,15 +360,29 @@ Describe 'redirect hook and installer' {
 
     It 'allows a command carrying the PTK_DIRECT escape hatch' {
         $out = '{"tool_name":"PowerShell","tool_input":{"command":"gcloud auth login # PTK_DIRECT"}}' |
-            pwsh -NoProfile -File $script:hookScript
+            & $script:hookScript
         $LASTEXITCODE | Should -Be 0
         $out | Should -BeNullOrEmpty
     }
 
     It 'allows the call when its own input is unparseable (never blocks on self-failure)' {
-        $out = 'not json at all' | pwsh -NoProfile -File $script:hookScript
+        $out = 'not json at all' | & $script:hookScript
         $LASTEXITCODE | Should -Be 0
         $out | Should -BeNullOrEmpty
+    }
+
+    It 'denies without a shell on PATH and never executes the submitted command' {
+        $marker = Join-Path $TestDrive 'must-not-exist'
+        $savedPath = $env:PATH
+        try {
+            $env:PATH = $TestDrive
+            $out = (@{ tool_input = @{ command = "New-Item '$marker'" } } | ConvertTo-Json) |
+                & $script:hookScript
+            $LASTEXITCODE | Should -Be 0
+            ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecision | Should -BeExactly 'deny'
+            Test-Path $marker | Should -BeFalse
+        }
+        finally { $env:PATH = $savedPath }
     }
 
     Context 'ptk_init settings patching' {
@@ -406,7 +424,7 @@ Describe 'redirect hook and installer' {
             $entries = @($config.hooks.PreToolUse)
             $entries.Count | Should -Be 1
             $entries[0].matcher | Should -BeExactly 'Bash|PowerShell'
-            $entries[0].hooks[0].command | Should -Match 'ptk-hook\.ps1'
+            $entries[0].hooks[0].command | Should -Match 'ptk-hook(\.exe)?'
         }
 
         It 'preserves foreign hooks and settings on install and uninstall' {
@@ -525,7 +543,7 @@ Describe 'redirect hook and installer' {
             New-Item -ItemType Directory -Path (Join-Path $homeWithScripts 'bin') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $homeWithScripts 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')) -Value 'stub'
             New-Item -ItemType Directory -Path (Join-Path $homeWithScripts 'scripts') -Force | Out-Null
-            Set-Content -LiteralPath (Join-Path $homeWithScripts 'scripts' 'ptk-hook.ps1') -Value '# installed copy'
+            Set-Content -LiteralPath (Join-Path $homeWithScripts 'bin' ($IsWindows ? 'ptk-hook.exe' : 'ptk-hook')) -Value '# installed copy'
             try {
                 pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $homeWithScripts | Out-Null
 
@@ -804,7 +822,7 @@ Describe 'redirect hook and installer' {
                 $raw | Should -Match 'keep-me'
                 $raw | Should -Match '\[\[hooks\]\]'
                 $raw | Should -Match 'matcher = "Bash"'
-                $raw | Should -Match 'ptk-hook\.ps1'
+                $raw | Should -Match 'ptk-hook(\.exe)?'
                 $raw | Should -Match '>>> ptk-hook'
                 Get-Content -LiteralPath $nudge -Raw | Should -Match 'ptk-guidance'
             }
@@ -827,7 +845,7 @@ Describe 'redirect hook and installer' {
                 $LASTEXITCODE | Should -Be 0
                 $out | Should -Match 'already registered - left as is'
                 (Get-Content -LiteralPath $mcp -Raw | ConvertFrom-Json).mcpServers.ptk.command | Should -Be 'x'
-                Get-Content -LiteralPath $toml -Raw | Should -Match 'ptk-hook\.ps1'
+                Get-Content -LiteralPath $toml -Raw | Should -Match 'ptk-hook(\.exe)?'
                 Get-Content -LiteralPath $nudge -Raw | Should -Match 'ptk-guidance'
             }
             finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
@@ -891,14 +909,14 @@ Describe 'redirect hook and installer' {
             New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'scripts') -Force | Out-Null
             $binName = $IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer'
             Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' $binName) -Value 'stub'
-            Set-Content -LiteralPath (Join-Path $homeWithBin 'scripts' 'ptk-hook.ps1') -Value '# stub'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' ($IsWindows ? 'ptk-hook.exe' : 'ptk-hook')) -Value '# stub'
             try {
                 pwsh -NoProfile -File $script:initScript -Agent kimi -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-Null
                 $LASTEXITCODE | Should -Be 0
                 $raw = Get-Content -LiteralPath $toml -Raw
                 # Basic string: outer double quotes, inner quotes escaped,
                 # the apostrophe literal.
-                $raw | Should -Match ([regex]::Escape('command = "pwsh -NoProfile -File \"'))
+                $raw | Should -Match ([regex]::Escape('command = "\"'))
                 $raw | Should -Match ([regex]::Escape("O'Brien"))
                 $show = pwsh -NoProfile -File $script:initScript -Agent kimi -Show -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-String
                 $show | Should -Match '\[kimi\] ptk hook: INSTALLED'
@@ -2272,7 +2290,7 @@ Describe 'Codex redirect hook installer' {
         New-Item -ItemType Directory -Path (Join-Path $script:codexHookHome 'bin') -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $script:codexHookHome 'scripts') -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $script:codexHookHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')) -Value 'stub'
-        Set-Content -LiteralPath (Join-Path $script:codexHookHome 'scripts' 'ptk-hook.ps1') -Value '# installed hook'
+        Set-Content -LiteralPath (Join-Path $script:codexHookHome 'bin' ($IsWindows ? 'ptk-hook.exe' : 'ptk-hook')) -Value '# installed hook'
         Set-Content -LiteralPath (Join-Path $script:codexHookBin 'codex.ps1') -Value @'
 if (($args -join ' ') -eq 'mcp get ptk') { exit 0 }
 if (($args -join ' ') -eq 'mcp remove ptk') { exit 0 }
@@ -2332,10 +2350,24 @@ exit 1
         @($config.hooks.PreToolUse).Count | Should -Be 3
         @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -eq 'headroom init hook ensure' }).Count | Should -Be 1
         @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -eq 'audit shared handler' }).Count | Should -Be 1
-        $ptk = @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -like '*ptk-hook.ps1*' })
+        $ptk = @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -like '*ptk-hook*' })
         $ptk.Count | Should -Be 1
         $ptk[0].matcher | Should -BeExactly 'Bash'
         $ptk[0].hooks[0].command | Should -Match ([regex]::Escape($script:codexHookHome))
+        $ptk[0].hooks[0].command | Should -Not -Match 'pwsh|\.ps1'
+    }
+
+    It 'preserves a similarly named foreign hook when removing legacy PTK' {
+        $config = Get-Content -LiteralPath $script:codexHooks -Raw | ConvertFrom-Json -AsHashtable
+        $config.hooks.PreToolUse += @{
+            matcher = 'Bash'; hooks = @(@{ type = 'command'; command = '/tools/ptk-hook-helper' })
+        }
+        $config | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $script:codexHooks
+        pwsh -NoProfile -File $script:codexHookInit -Agent codex -Uninstall `
+            -CodexConfigPath $script:codexHookConfig -CodexHooksPath $script:codexHooks `
+            -NudgePath $script:codexNudge -PtkHome $script:codexHookHome | Out-Null
+        $LASTEXITCODE | Should -Be 0
+        Get-Content -LiteralPath $script:codexHooks -Raw | Should -Match '/tools/ptk-hook-helper'
     }
 
     It 'uninstalls only the PTK hook' {

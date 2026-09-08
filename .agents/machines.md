@@ -3,6 +3,49 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha-2.local` native redirect hook (2026-09-08)
+
+- Hook-only deployment:
+  `/Users/michael/.ptk-local/native-hook-20260908-5d6d7a75/bin/ptk-hook`.
+  SHA-256 `4e218e971c3003e925e1bdeee72a6738f9fdd5abf91e86d4002826ca37a18183`.
+  The 1,418,264-byte osx-arm64 NativeAOT executable links only macOS system
+  libraries, requires no PowerShell or installed .NET runtime, and passed
+  the registered shell-command launch with empty PATH.
+- Only the existing PTK handler's command in
+  `/Users/michael/.codex/hooks.json` changed. Exact prior file:
+  `/Users/michael/.codex/hooks.json.native-hook-20260908-5d6d7a75.bak`.
+  Foreign handlers and formatting were preserved. No Claude or Kimi hook
+  config existed at the standard paths on this host.
+- `/Users/michael/.codex/config.toml` stayed byte-identical (SHA-256
+  `1cb5159cd4dc2c85fd59bc6b97e1766d376421d5f7acd2a81fea8081b1bd749a`),
+  including the PTK hook's `enabled = false` and existing trust hashes.
+  No hook was enabled or trust-approved programmatically. Already-running
+  harnesses may retain their previously loaded hook command.
+- All 29 pre-existing processes using the original or alternate PTK runtime
+  paths retained their PID, start time, and command across the hook switch.
+  This connection's worker PID 91584 retained its warm continuity marker.
+  Original MCP DLL SHA-256 remained
+  `b17f98a99ff0e01098e3a4c110c38d8dbbe639803c8dbfaa26ef01cd6b910573`;
+  alternate MCP DLL remained
+  `a61af4728ebd5f09526180da719c1854ddba21d0dbc1fc81e2880cbb46b119f2`.
+  Neither installed runtime directory was modified.
+- Local build tooling: Homebrew .NET SDK 10.0.400's bundled NativeAOT pack
+  initially failed to link because it requests Homebrew OpenSSL/Brotli
+  libraries. Supplying those paths produced an unwanted Homebrew-dependent
+  executable, so that artifact was not deployed. For validation/build child
+  processes only, `NetCoreTargetingPackRoot` pointed at the nonexistent
+  `/private/tmp/ptk-official-nuget-packs`, causing the SDK to resolve official
+  same-version NuGet packs, and `PrunePackageTargetingPackRoots` retained
+  `/opt/homebrew/Cellar/dotnet/10.0.400/libexec/packs` for SDK prune metadata.
+  `otool -L` verified the resulting deployed artifact uses only system
+  libraries. No system SDK, PowerShell installation, or global environment
+  was changed. Validation children also omitted inherited `PSModulePath`,
+  as documented by the existing PTK worker test-environment diagnosis.
+- Scope, full test results, and measured timing are canonical in
+  `.agents/plans/native-redirect-hook.md`. Keep this standalone hook directory
+  while registered; rollback must replace only the PTK handler command and
+  preserve intervening hook edits.
+
 ## `nagatha-2.local` alternate PTK launch path (2026-09-08)
 
 - The owner required new connections to work without stopping existing PTK

@@ -13,7 +13,10 @@ on:
         required: true
 
 permissions:
-  contents: read
+  # GitHub hides draft releases from credentials without push access. The
+  # verifier only reads, but its token must be able to see the unpublished
+  # candidate that the release workflow created.
+  contents: write
 
 env:
   GH_TOKEN: ${{ github.token }}

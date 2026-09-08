@@ -9,7 +9,9 @@ package-manager releases. Existing running sessions must survive. See
 - Version: `0.3.0-rc.3`; intended tag `v0.3.0-rc.3`.
 - Product source: `e823781b2127c7f3b7c2e01eb5daf9da19e34a38`.
 - Exact-source CI: `34275489232`, all six jobs passed.
-- Native release workflow: `34276660442`, in progress.
+- Native release workflow: `34276660442`, all five native legs and draft
+  assembly passed.
+- Draft release: `385067589`, marked prerelease, twelve assets.
 - Build branch on canonical `origin`: `release/0.3.0-rc.3`, pointing at that exact source. <!-- lint: allow (Git branch, not a repository path) -->
   GitHub rejected a raw-SHA workflow dispatch, so this named build branch was created;
   no release tag was created by the operator.
@@ -17,10 +19,20 @@ package-manager releases. Existing running sessions must survive. See
 
 ## Current evidence
 
-Both native Linux release legs passed. macOS signed/notarized successfully and
-is finishing packaged SIEM workflows. Windows signing is in progress. No new
-draft or public release is claimed yet; asset IDs, hashes, identities, and
-downloaded native checks will be recorded after assembly.
+All release legs passed, including native CLI/package, signing, Windows
+Defender, macOS notarization, MCP/product, and SIEM workflow gates. Fresh local
+downloads independently passed all twelve GitHub digests, eleven archive
+hashes, and ten unique clean identities. The Mac workflow archive also passed
+the new local downloaded-product harness: every Mach-O signature/online ticket,
+staged/installed handshakes, CLI setup/removal, SIEM workflows, all 32 product
+checks, and actual disposable uninstall. It was byte-identical to the Mac
+release asset. The candidate is still a draft.
+
+The first uploaded-download workflow, `34279698794`, failed before product
+execution: its contents-read token could not see the unpublished draft.
+The local authenticated download succeeded against the same metadata. The
+workflow now grants the token the push visibility GitHub requires for drafts;
+its operations remain downloads/verification. A new native run is required.
 
 The downloaded verification harness landed separately at `128cdf8`. It tests
 published/downloaded product bytes against the source above and never rebuilds

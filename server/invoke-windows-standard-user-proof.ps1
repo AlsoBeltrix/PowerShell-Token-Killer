@@ -33,10 +33,32 @@ try {
     Copy-Item (Join-Path $checkout 'scripts/ptk_build_provenance.psm1') (Join-Path $directory 'scripts')
     Copy-Item $DownloadRoot (Join-Path $directory 'downloads') -Recurse
     Copy-Item $RtkPath (Join-Path $directory 'rtk.exe')
+    # Credential switching loads the account's profile but inherits the
+    # runner's environment, including its inaccessible TEMP directory. Set
+    # account-owned paths before starting the actual proof PowerShell process.
+    $launcher = Join-Path $directory 'launch-proof.ps1'
+    @'
+$ErrorActionPreference = 'Stop'
+$profileRoot = [Environment]::GetFolderPath('UserProfile')
+$env:USERPROFILE = $profileRoot
+$env:HOME = $profileRoot
+$env:HOMEDRIVE = [IO.Path]::GetPathRoot($profileRoot).TrimEnd('\')
+$env:HOMEPATH = $profileRoot.Substring($env:HOMEDRIVE.Length)
+$env:APPDATA = Join-Path $profileRoot 'AppData/Roaming'
+$env:LOCALAPPDATA = Join-Path $profileRoot 'AppData/Local'
+$env:TEMP = Join-Path $env:LOCALAPPDATA 'Temp'
+$env:TMP = $env:TEMP
+New-Item -ItemType Directory -Path $env:APPDATA, $env:TEMP -Force | Out-Null
+foreach ($variable in 'GH_TOKEN', 'GITHUB_TOKEN', 'PSModulePath') {
+    [Environment]::SetEnvironmentVariable($variable, $null, 'Process')
+}
+& (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File (Join-Path $PSScriptRoot 'server/test-downloaded-product.ps1') @args
+exit $LASTEXITCODE
+'@ | Set-Content -LiteralPath $launcher
     & icacls $directory /grant "${name}:(OI)(CI)M" /T /Q | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Could not grant the proof account access to its fixture.' }
     $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $password)
-    $arguments = @('-NoProfile', '-File', ('"' + (Join-Path $directory 'server/test-downloaded-product.ps1') + '"'),
+    $arguments = @('-NoProfile', '-File', ('"' + $launcher + '"'),
         '-DownloadRoot', ('"' + (Join-Path $directory 'downloads') + '"'), '-Version', $Version,
         '-SourceCommit', $SourceCommit, '-Rid', $Rid, '-RtkPath', ('"' + (Join-Path $directory 'rtk.exe') + '"'))
     $process = Start-Process -FilePath $pwsh -Credential $credential -LoadUserProfile `

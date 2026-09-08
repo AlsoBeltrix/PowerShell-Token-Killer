@@ -32,7 +32,12 @@ The first uploaded-download workflow, `34279698794`, failed before product
 execution: its contents-read token could not see the unpublished draft.
 The local authenticated download succeeded against the same metadata. The
 workflow now grants the token the push visibility GitHub requires for drafts;
-its operations remain downloads/verification. A new native run is required.
+its operations remain downloads/verification. Run `34279949935` then passed
+the full inventory and all three Unix native product jobs. Both Windows jobs
+validated all 891 signatures but the disposable-account test inherited the
+runner's inaccessible TEMP directory. The test launcher now initializes the
+new account's profile/temp environment before launching the proof. The
+Windows native rerun remains required; release assets are unchanged.
 
 The downloaded verification harness landed separately at `128cdf8`. It tests
 published/downloaded product bytes against the source above and never rebuilds
@@ -43,7 +48,6 @@ the downloader and digest/provenance checks successfully without altering rc.2.
 
 ## Still required
 
-- Complete native draft assembly and all twelve-asset integrity checks.
 - Native downloaded install, signatures/notarization, CLI, runtime, SIEM
   workflows, and opt-in uninstall on all five RIDs.
 - Final factual release notes, publication, and public bootstrap proof.

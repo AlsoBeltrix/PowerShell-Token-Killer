@@ -135,7 +135,9 @@ and uninstall proof.
   publication, public bootstrap proof, then package-channel publication and
   actual per-channel availability. The five-RID downloaded-product gate is
   already satisfied. Keep rc.2 frozen and unpublished; live installation
-  still replaces nothing without its own go.
+  still replaces nothing without its own go. The publication authorization
+  above is a prior-session record from 2026-09-08, not a live instruction:
+  reconfirm it with the owner before any outward action.
 - Close canonical GitHub #30 only under its separate outward-action gate.
   Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.

@@ -36,8 +36,10 @@ its operations remain downloads/verification. Run `34279949935` then passed
 the full inventory and all three Unix native product jobs. Both Windows jobs
 validated all 891 signatures but the disposable-account test inherited the
 runner's inaccessible TEMP directory. The test launcher now initializes the
-new account's profile/temp environment before launching the proof. The
-Windows native rerun remains required; release assets are unchanged.
+new account's profile/temp environment before launching the proof. Rerun
+`34280500750` at `22eb5249` then passed all six jobs: the inventory and the
+native downloaded-product job on every RID, including both Windows legs.
+Release assets are unchanged throughout.
 
 The downloaded verification harness landed separately at `128cdf8`. It tests
 published/downloaded product bytes against the source above and never rebuilds
@@ -48,8 +50,6 @@ the downloader and digest/provenance checks successfully without altering rc.2.
 
 ## Still required
 
-- Native downloaded install, signatures/notarization, CLI, runtime, SIEM
-  workflows, and opt-in uninstall on all five RIDs.
 - Final factual release notes, publication, and public bootstrap proof.
   Existing publishing credentials and the owner's correction to the earlier
   setup assumptions are recorded in the execution plan.

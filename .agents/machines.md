@@ -2097,6 +2097,13 @@ used._
 
 ## `ASHBIAMWEB1` — Codex Windows workspace
 
+### Shell tooling — 2026-10-01
+
+- Under Git Bash here, `python` and `python3` resolve to the Microsoft Store
+  App Execution Alias stub and fail; the real interpreter is `py`
+  (Python 3.14.0). CI invokes the repository's Python guards as `python -B`,
+  so run them locally as `py -B scripts/<guard>.py` instead.
+
 ### Issue #30 remoting acceptance evidence — 2026-08-31
 
 - Owner-approved endpoint: `ashbmbxtest1` (`Microsoft.Exchange` WSMan endpoint

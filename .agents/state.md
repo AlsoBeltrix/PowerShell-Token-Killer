@@ -14,6 +14,10 @@ survive. Implementation is underway; no new release is published yet.
 The native CLI is committed at `e823781` with all six CI jobs passing in
 `34275489232`. That exact source is building as rc.3 in release run
 `34276660442`; the candidate record is `.agents/release-candidate-0.3.0-rc.3.md`.
+Draft `385067589` exists with twelve assets, and downloaded-release
+verification `34280500750` passed its inventory plus the native
+signature/install/CLI/runtime/SIEM/uninstall proof on all five RIDs. CI at
+current head is red; see Blockers. Nothing is published.
 
 **Native redirect hook, 2026-09-08:** implemented and deployed; all six CI
 jobs passed at `2247aae`. The owner's subsequent go enabled and trusted the
@@ -126,12 +130,12 @@ and uninstall proof.
   previously failed connection needs a fresh connection to read the new
   registration; do not stop other sessions to make this happen. See
   `.agents/plans/buffered-audit-startup.md`.
-- Next session: identify an available matching-native Windows/Linux test host
-  and continue the remaining downloaded-package installation/lifecycle and
-  Windows signature checks listed in the candidate record. Keep corrected
-  rc.2 unpublished. Publication, live installation, and any replacement
-  candidate incorporating the newer harness fix retain separate owner gates;
-  rc.3 is not an adopted decision.
+- Resolve the current-head CI failure below, then continue rc.3 through
+  `.agents/plans/release-0.3.0-rc.3.md`: final factual release notes,
+  publication, public bootstrap proof, then package-channel publication and
+  actual per-channel availability. The five-RID downloaded-product gate is
+  already satisfied. Keep rc.2 frozen and unpublished; live installation
+  still replaces nothing without its own go.
 - Close canonical GitHub #30 only under its separate outward-action gate.
   Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.
@@ -159,6 +163,16 @@ and uninstall proof.
 
 ## Blockers
 
+- **Current-head CI red, 2026-09-08:** run `34281077684` at `4439734e`
+  failed only `test (windows-latest)`. One server test,
+  `AuditDestinationS3Tests.Coordinator_applies_live_changes_and_keeps_partial_failure_independent`,
+  exhausted the fixed 15-second `WaitUntilAsync` budget; 1,391 of 1,392
+  passed and the other five jobs passed. No product code changed since green
+  run `34277812068` at `3ff494c5` — the later commits touched records,
+  workflows, Python guards, and a Windows proof launcher — so this reads as
+  the known fixed-watchdog timing class rather than a regression. Not
+  reproduced locally and no rerun attempted; diagnose before trusting the
+  head as green.
 - **Canonical GitHub #30 closure:** `i30-1` is fixed on `origin/master` and exact-
   head CI run `33924847924` passed all six jobs. The live issue remains open;
   issue mutation is a separate outward-action gate.

@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "verified_at_utc": "2026-09-08T21:26:36Z",
+  "release": {
+    "repository": "AlsoBeltrix/PowerShell-Token-Killer",
+    "id": 385067589,
+    "tag": "v0.3.0-rc.3",
+    "title": "ptk 0.3.0-rc.3",
+    "draft": true,
+    "prerelease": true,
+    "published_at": null,
+    "target_commitish": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38"
+  },
+  "release_workflow": {
+    "run_id": 34276660442,
+    "conclusion": "success"
+  },
+  "ordinary_ci": {
+    "run_id": 34275489232,
+    "conclusion": "success"
+  },
+  "integrity_verification": {
+    "digest_count": 12,
+    "unique_build_identity_count": 10,
+    "run_id": 34279949935,
+    "conclusion": "success",
+    "job": "inventory",
+    "archive_count": 11
+  },
+  "assets": [
+    {
+      "name": "ptk-0.3.0-rc.3-linux-arm64.tar.gz",
+      "id": 551323720,
+      "size": 52423399,
+      "digest": "sha256:2b5802ef13d5cdb9f42dac081c4ccfa70c61c3d3205a27d590b48e9e8c12cc09",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-0.3.0-rc.3-linux-arm64.tar.gz"
+    },
+    {
+      "name": "ptk-0.3.0-rc.3-linux-x64.tar.gz",
+      "id": 551323640,
+      "size": 54594155,
+      "digest": "sha256:d349175c46ee3087ec2d336646d14acf1ed60af90f18e5a41b60574030900b1c",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-0.3.0-rc.3-linux-x64.tar.gz"
+    },
+    {
+      "name": "ptk-0.3.0-rc.3-osx-arm64.tar.gz",
+      "id": 551323722,
+      "size": 51037091,
+      "digest": "sha256:65bf8041e0ce0558c3fed3d1d6c7b3cd209f30ed18cc5a91ccb9e4ba99cdf91e",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-0.3.0-rc.3-osx-arm64.tar.gz"
+    },
+    {
+      "name": "ptk-0.3.0-rc.3-win-arm64.zip",
+      "id": 551323641,
+      "size": 58712313,
+      "digest": "sha256:1d2e8667f7666bd2c12a4eca03033ea27fdcba5f356ed69818efe273e020812f",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-0.3.0-rc.3-win-arm64.zip"
+    },
+    {
+      "name": "ptk-0.3.0-rc.3-win-x64.zip",
+      "id": 551323639,
+      "size": 60434919,
+      "digest": "sha256:07233f026599354d7f99a92ee8add27c13b91524d39b27272026f3e3ede34794",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-0.3.0-rc.3-win-x64.zip"
+    },
+    {
+      "name": "ptk-installer.zip",
+      "id": 551323759,
+      "size": 21736,
+      "digest": "sha256:c17ea9d44bb071e021e43e4b72f377079df126dfdd27707bc911a10901f65f78",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-installer.zip"
+    },
+    {
+      "name": "ptk-siem-receiver-0.3.0-rc.3-linux-arm64.tar.gz",
+      "id": 551323721,
+      "size": 46696531,
+      "digest": "sha256:32c4ad806b15af65ed0202c1722fd29dc048d771563832640436b3b6c84d537c",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-siem-receiver-0.3.0-rc.3-linux-arm64.tar.gz"
+    },
+    {
+      "name": "ptk-siem-receiver-0.3.0-rc.3-linux-x64.tar.gz",
+      "id": 551323711,
+      "size": 49234780,
+      "digest": "sha256:771b6edd26607f64534f5a8fce7e27df5045b4ddfc5c4dfe6732b6f4f7c3f705",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-siem-receiver-0.3.0-rc.3-linux-x64.tar.gz"
+    },
+    {
+      "name": "ptk-siem-receiver-0.3.0-rc.3-osx-arm64.tar.gz",
+      "id": 551323725,
+      "size": 45586186,
+      "digest": "sha256:522b6ad7eb443034191b637b699e2a6e29b0a8b9455da8ecc4af86a8431790d8",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-siem-receiver-0.3.0-rc.3-osx-arm64.tar.gz"
+    },
+    {
+      "name": "ptk-siem-receiver-0.3.0-rc.3-win-arm64.zip",
+      "id": 551323638,
+      "size": 50595542,
+      "digest": "sha256:9773ac2c118e9877d5f048931684628739d74c3489251c8aefb41b02f5aa0881",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-siem-receiver-0.3.0-rc.3-win-arm64.zip"
+    },
+    {
+      "name": "ptk-siem-receiver-0.3.0-rc.3-win-x64.zip",
+      "id": 551323636,
+      "size": 52850789,
+      "digest": "sha256:2c25498390ea1e60083b679dcaf04ac8ad5e20935b9bcaadd6f513b054e32db4",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/ptk-siem-receiver-0.3.0-rc.3-win-x64.zip"
+    },
+    {
+      "name": "SHA256SUMS",
+      "id": 551323762,
+      "size": 1122,
+      "digest": "sha256:0737d57b7dd4bdcb77d57b5c8cace89cb81c6c9355b105521285b9eb233e24b9",
+      "url": "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/untagged-7a6c16dc7867a86fdb10/SHA256SUMS"
+    }
+  ],
+  "build_identities": [
+    {
+      "schema_version": 1,
+      "product": "ptk",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "cf38e8d9c559491b989da57c4fb677cc",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:46:13.73Z",
+      "target_rid": "linux-arm64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "b7d00f328278488fa1cdf3947cbe3d27",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:45:57.682Z",
+      "target_rid": "linux-x64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "78387c3913e245a9b80e2cd3ab88253a",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:46:00.92Z",
+      "target_rid": "osx-arm64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "e9a0e6c4f3bf44cea150c846d7bf0bfd",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:46:42.96Z",
+      "target_rid": "win-arm64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "92239b95e6364926b81a68adc2785936",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:46:16.437Z",
+      "target_rid": "win-x64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk-siem-receiver",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "3d6aabaf3fd24a81aa030de720c88e32",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:46:44.119Z",
+      "target_rid": "linux-arm64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk-siem-receiver",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "347b3293386e4dc8942ed6cbd5b14205",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:46:25.741Z",
+      "target_rid": "linux-x64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk-siem-receiver",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "048d1d03c3e64f5dbccd40a2c3d800ba",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:46:48.18Z",
+      "target_rid": "osx-arm64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk-siem-receiver",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "31c59e30ef8544a19e83a04a7747b374",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:48:16.53Z",
+      "target_rid": "win-arm64"
+    },
+    {
+      "schema_version": 1,
+      "product": "ptk-siem-receiver",
+      "product_version": "0.3.0-rc.3",
+      "build_identity": "1362ec23e2c64f0383ca75e505dfe1cb",
+      "source_commit": "e823781b2127c7f3b7c2e01eb5daf9da19e34a38",
+      "source_dirty": false,
+      "build_time_utc": "2026-09-08T20:47:33.346Z",
+      "target_rid": "win-x64"
+    }
+  ]
+}

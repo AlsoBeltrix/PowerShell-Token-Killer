@@ -1,5 +1,10 @@
 # Next PTK prerelease — working release notes
 
+**Superseded for current work:** the owner authorized the rc.3 update on
+2026-09-08. Its current release-note draft is
+`.agents/release-notes-0.3.0-rc.3.md`; this file retains the historical rc.2
+content and gates and must not be used as the current release record.
+
 **Status:** NOT PUBLISHABLE until the remaining public-launch gates close.
 The rc.2 checksum-format defect (`rr-8`) is resolved by an explicit
 owner-authorized checksum-only correction to the unpublished draft. Both

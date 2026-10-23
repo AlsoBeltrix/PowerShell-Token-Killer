@@ -1697,6 +1697,104 @@ Describe 'development package layout' {
         { & $probe $fn $innocent } | Should -Not -Throw
     }
 
+    # Prerequisites are installed only with the user's agreement, asked
+    # before anything is staged; a session that cannot ask declines.
+    Context 'prerequisite consent' {
+        BeforeAll {
+            $installerSource = Get-Content -LiteralPath (
+                Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1') -Raw
+            $extractFunction = {
+                param($text, $name)
+                $start = $text.IndexOf("function $name")
+                if ($start -lt 0) { return '' }
+                $depth = 0
+                $seen = $false
+                for ($i = $start; $i -lt $text.Length; $i++) {
+                    if ($text[$i] -eq '{') { $depth++; $seen = $true }
+                    elseif ($text[$i] -eq '}') {
+                        $depth--
+                        if ($seen -and $depth -eq 0) { return $text.Substring($start, $i - $start + 1) }
+                    }
+                }
+                return ''
+            }
+            $consent = & $extractFunction $installerSource 'Confirm-PtkPrerequisiteInstall'
+        }
+        AfterEach { Remove-Item env:PTK_INSTALL_INTERACTIVE -ErrorAction SilentlyContinue }
+
+        It 'asks interactively, agrees on Enter or yes, and declines otherwise' {
+            $consent | Should -Not -BeNullOrEmpty
+            $env:PTK_INSTALL_INTERACTIVE = '1'
+            $ask = {
+                param($reply)
+                & ([scriptblock]::Create($consent +
+                        "`nfunction Read-Host { '$reply' }" +
+                        "`nConfirm-PtkPrerequisiteInstall -Question 'q?'"))
+            }
+            & $ask '' | Should -BeTrue
+            & $ask 'y' | Should -BeTrue
+            & $ask 'YES' | Should -BeTrue
+            & $ask 'n' | Should -BeFalse
+            & $ask 'later' | Should -BeFalse
+        }
+
+        It 'declines without asking when the session cannot ask, unless agreed in advance' {
+            $env:PTK_INSTALL_INTERACTIVE = '0'
+            $body = $consent +
+                "`nfunction Read-Host { throw 'asked' }" +
+                "`nConfirm-PtkPrerequisiteInstall -Question 'q?'"
+            & ([scriptblock]::Create($body)) | Should -BeFalse
+            & ([scriptblock]::Create("`$InstallPrerequisites = `$true`n" + $body)) | Should -BeTrue
+        }
+
+        It 'refuses a missing rtk when the user declines, and does not re-ask after an agreed install' {
+            $body = & $extractFunction $installerSource 'Assert-PtkRtkConsent'
+            $body | Should -Not -BeNullOrEmpty
+            $consentHome = Join-Path $TestDrive ('rtk-consent-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $consentHome | Out-Null
+            $probe = {
+                param($agree)
+                & ([scriptblock]::Create(
+                        "`$ptkHome = '$consentHome'; `$rtkMarkerName = '.ptk-installed-rtk'`n" + $body +
+                        "`nfunction Find-PtkRtk { `$null }" +
+                        "`nfunction Confirm-PtkPrerequisiteInstall { `$$agree }" +
+                        "`nAssert-PtkRtkConsent"))
+            }
+            { & $probe $false } | Should -Throw -ExpectedMessage '*-InstallPrerequisites*'
+            { & $probe $true } | Should -Not -Throw
+            Set-Content -LiteralPath (Join-Path $consentHome '.ptk-installed-rtk') -Value 'x'
+            { & $probe $false } | Should -Not -Throw
+        }
+
+        It 'checks the toolchain before offering the SDK, and installs the SDK only on agreement' {
+            $body = & $extractFunction $installerSource 'Assert-PtkSourceBuildPrerequisites'
+            $body | Should -Not -BeNullOrEmpty
+            # Arguments are code fragments: the toolchain problem expression,
+            # then the SDK-present and agree booleans.
+            $probe = {
+                param($problem, $sdkPresent, $agree)
+                & ([scriptblock]::Create(
+                        "`$dotnetSdkMajor = 10; `$userDotnetRoot = 'sdk-root'`n" + $body +
+                        "`nfunction Get-PtkNativeToolchainProblem { $problem }" +
+                        "`nfunction Test-PtkDotnetSdk { `$$sdkPresent }" +
+                        "`nfunction Confirm-PtkPrerequisiteInstall { `$$agree }" +
+                        "`nfunction Install-PtkDotnetSdk { 'installed' }" +
+                        "`nAssert-PtkSourceBuildPrerequisites -TargetRid 'linux-x64'"))
+            }
+            { & $probe "'NativeAOT needs clang'" $false $true } |
+                Should -Throw -ExpectedMessage '*NativeAOT needs clang*-FromRelease*'
+            & $probe '$null' $true $true | Should -BeNullOrEmpty
+            { & $probe '$null' $false $false } | Should -Throw -ExpectedMessage '*-InstallPrerequisites*'
+            & $probe '$null' $false $true | Should -Be 'installed'
+        }
+
+        It 'asks every prerequisite question before staging' {
+            $installerSource | Should -Match ('Assert-PtkRtkConsent\s*\r?\n\s*' +
+                'if \(-not \$FromRelease\) \{ Assert-PtkSourceBuildPrerequisites -TargetRid \$targetRid \}' +
+                '\s*\r?\n\s*\$staging = Join-Path')
+        }
+    }
+
     # Finding i42-1 (codex, HIGH): rollback repeats the activation bug. It
     # removes the target and then copies the snapshot back without checking
     # the removal took effect, and Copy-Item -Recurse onto a surviving

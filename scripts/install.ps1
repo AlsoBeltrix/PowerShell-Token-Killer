@@ -21,8 +21,16 @@ wholesale on upgrade. Everything else there is user-owned and is never
 touched except by -Purge.
 
 rtk is a required dependency: the server exits 78 without one. An rtk already
-on PATH is used as-is; otherwise the matching build is fetched from rtk's
-releases, checksum-verified, and recorded so uninstall removes only that copy.
+on PATH is used as-is; otherwise, once the user agrees, the matching build is
+fetched from rtk's releases, checksum-verified, and recorded so uninstall
+removes only that copy.
+
+A source install (no -FromRelease) also needs the .NET SDK and the NativeAOT
+native toolchain. A missing SDK is offered as a per-user install under
+~/.dotnet; a missing toolchain needs admin/sudo, so the installer stops and
+names the command instead. Consent is asked before anything is staged;
+-InstallPrerequisites agrees in advance, and a non-interactive session that
+was not given it refuses rather than fetching software unannounced.
 
 -Uninstall reverses all of it and keeps user files; add -Purge to remove them.
 -LayoutOnly -OutputDir <dir> builds the layout and stops — release CI drives
@@ -36,6 +44,7 @@ verb can host it in-process (the binary embeds the PowerShell engine).
 pwsh -File scripts/install.ps1 -FromRelease         # latest published release
 pwsh -File scripts/install.ps1 -FromRelease -Version 0.2.0
 pwsh -File scripts/install.ps1                      # build and install this checkout
+pwsh -File scripts/install.ps1 -FromRelease -InstallPrerequisites  # unattended
 pwsh -File scripts/install.ps1 -Uninstall
 pwsh -File scripts/install.ps1 -LayoutOnly -Validate -OutputDir out/ptk-layout
 #>
@@ -95,7 +104,13 @@ param(
     [Parameter(ParameterSetName = 'Install')]
     [string[]]$SkipAgent,
     [Parameter(ParameterSetName = 'Install')]
-    [switch]$AllAgents
+    [switch]$AllAgents,
+
+    # Agree in advance to installing missing prerequisites (rtk; the .NET
+    # SDK for a source build). Without it, an interactive install asks and a
+    # non-interactive one refuses with manual instructions.
+    [Parameter(ParameterSetName = 'Install')]
+    [switch]$InstallPrerequisites
 )
 
 $ErrorActionPreference = 'Stop'
@@ -504,6 +519,151 @@ function Get-PtkReleaseLayout {
     }
 }
 
+# --- prerequisites ---------------------------------------------------------
+# Missing prerequisites are installed only with the user's agreement:
+# -InstallPrerequisites agrees in advance, an interactive session asks (Enter
+# agrees), and a session that cannot ask declines. PTK_INSTALL_INTERACTIVE=1
+# forces the prompt path and =0 the non-interactive one (test seam).
+function Confirm-PtkPrerequisiteInstall {
+    param([Parameter(Mandatory)][string]$Question)
+    if ($InstallPrerequisites) { return $true }
+    $interactive = switch ($env:PTK_INSTALL_INTERACTIVE) {
+        '1' { $true }
+        '0' { $false }
+        default { -not [Console]::IsInputRedirected }
+    }
+    if (-not $interactive) { return $false }
+    $answer = Read-Host "$Question [Y/n]"
+    [string]::IsNullOrWhiteSpace($answer) -or $answer.Trim() -match '^(?i:y|yes)$'
+}
+
+# Building this checkout needs the .NET SDK and the NativeAOT native
+# toolchain. The SDK installs per user without elevation, so it is offered;
+# the toolchain needs admin/sudo, which this installer refuses to run under,
+# so it is named with the command that installs it.
+$dotnetSdkMajor = 10
+$userDotnetRoot = Join-Path $HOME '.dotnet'
+
+# True when a .NET SDK of at least $dotnetSdkMajor is reachable. A per-user
+# SDK under ~/.dotnet (from an earlier run) counts and is put on this
+# process's PATH, so a re-run before the user adds it to PATH neither asks
+# nor reinstalls.
+function Test-PtkDotnetSdk {
+    $exe = if ($IsWindows) { 'dotnet.exe' } else { 'dotnet' }
+    $candidates = @(
+        Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty Source
+        Join-Path $userDotnetRoot $exe
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    foreach ($dotnet in $candidates) {
+        $sdks = @(& $dotnet --list-sdks 2>$null)
+        $ok = $LASTEXITCODE -eq 0 -and [bool]($sdks | Where-Object {
+                $_ -match '^(\d+)\.' -and [int]$Matches[1] -ge $dotnetSdkMajor })
+        $global:LASTEXITCODE = 0
+        if (-not $ok) { continue }
+        $root = Split-Path -Parent $dotnet
+        if ($root -eq $userDotnetRoot) {
+            $env:DOTNET_ROOT = $root
+            $env:PATH = $root + [IO.Path]::PathSeparator + $env:PATH
+        }
+        return $true
+    }
+    $false
+}
+
+# Microsoft's documented per-user installer, into ~/.dotnet. On Windows the
+# script is Authenticode-signed and must verify before it runs.
+function Install-PtkDotnetSdk {
+    $channel = "$dotnetSdkMajor.0"
+    $staging = Join-Path ([IO.Path]::GetTempPath()) ("ptk-dotnet-{0}" -f ([guid]::NewGuid()))
+    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    try {
+        if ($IsWindows) {
+            $script = Join-Path $staging 'dotnet-install.ps1'
+            Invoke-WebRequest -UseBasicParsing -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $script
+            $signature = Get-AuthenticodeSignature -LiteralPath $script
+            if ($signature.Status -ne 'Valid') {
+                throw "dotnet-install.ps1 signature is $($signature.Status); refusing to run it."
+            }
+            & ([Environment]::ProcessPath) -NoProfile -File $script `
+                -Channel $channel -InstallDir $userDotnetRoot -NoPath | Out-Host
+        }
+        else {
+            $script = Join-Path $staging 'dotnet-install.sh'
+            Invoke-WebRequest -UseBasicParsing -Uri 'https://dot.net/v1/dotnet-install.sh' -OutFile $script
+            bash $script --channel $channel --install-dir $userDotnetRoot --no-path | Out-Host
+        }
+        if ($LASTEXITCODE -ne 0) { throw "dotnet-install failed with exit code $LASTEXITCODE." }
+    }
+    finally {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (-not (Test-PtkDotnetSdk)) {
+        throw "dotnet-install finished but no .NET $dotnetSdkMajor SDK answers under $userDotnetRoot."
+    }
+    Write-Host ("Installed the .NET $dotnetSdkMajor SDK to $userDotnetRoot. To use it outside " +
+        'this installer, add that directory to PATH and set DOTNET_ROOT to it.')
+}
+
+# Why a NativeAOT build cannot run here, with the install command; $null when
+# the toolchain is present.
+function Get-PtkNativeToolchainProblem {
+    param([Parameter(Mandatory)][string]$TargetRid)
+    if ($IsWindows) {
+        $arm64 = $TargetRid -eq 'win-arm64'
+        $component = $arm64 ? 'Microsoft.VisualStudio.Component.VC.Tools.ARM64' :
+            'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
+        $programFiles = ${env:ProgramFiles(x86)}
+        $vswhere = if ($programFiles) {
+            Join-Path $programFiles 'Microsoft Visual Studio' 'Installer' 'vswhere.exe'
+        }
+        if ($vswhere -and (Test-Path -LiteralPath $vswhere)) {
+            $found = & $vswhere -latest -products '*' -requires $component -property installationPath
+            $global:LASTEXITCODE = 0
+            if ($found) { return $null }
+        }
+        $extra = $arm64 ? ' --add Microsoft.VisualStudio.Component.VC.Tools.ARM64' : ''
+        return ("NativeAOT needs Visual Studio or Build Tools with the 'Desktop development " +
+            "with C++' workload$($arm64 ? ' and the ARM64 build tools' : ''). For example:`n" +
+            '  winget install Microsoft.VisualStudio.2022.BuildTools --override ' +
+            "`"--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended$extra`"")
+    }
+    if ($IsMacOS) {
+        xcode-select -p *> $null
+        $ok = $LASTEXITCODE -eq 0
+        $global:LASTEXITCODE = 0
+        if ($ok) { return $null }
+        return "NativeAOT needs the Xcode Command Line Tools. Install them with:`n  xcode-select --install"
+    }
+    $missing = @()
+    if (-not (Get-Command clang -CommandType Application -ErrorAction SilentlyContinue)) {
+        $missing += 'clang'
+    }
+    if (-not (Test-Path -LiteralPath '/usr/include/zlib.h')) { $missing += 'zlib development headers' }
+    if ($missing.Count -eq 0) { return $null }
+    "NativeAOT needs $($missing -join ' and '). For example:`n" +
+        "  sudo apt-get install clang zlib1g-dev    # Debian/Ubuntu`n" +
+        '  sudo dnf install clang zlib-devel        # Fedora/RHEL'
+}
+
+# Run before anything is staged. The toolchain is checked first so a build
+# that cannot succeed never installs an SDK on the way to failing.
+function Assert-PtkSourceBuildPrerequisites {
+    param([Parameter(Mandatory)][string]$TargetRid)
+    $fallback = 'To skip building, install a prebuilt release with -FromRelease instead.'
+    $problem = Get-PtkNativeToolchainProblem -TargetRid $TargetRid
+    if ($problem) { throw "$problem`nInstall it, then re-run this installer. $fallback" }
+    if (Test-PtkDotnetSdk) { return }
+    $question = ("Building this checkout needs the .NET $dotnetSdkMajor SDK, which was not found. " +
+        "Install it for this user into $userDotnetRoot?")
+    if (-not (Confirm-PtkPrerequisiteInstall -Question $question)) {
+        throw ("The .NET $dotnetSdkMajor SDK is required to build this checkout " +
+            '(https://dotnet.microsoft.com/download); re-run with -InstallPrerequisites to let ' +
+            "this installer fetch it. $fallback")
+    }
+    Install-PtkDotnetSdk
+}
+
 # --- rtk -------------------------------------------------------------------
 # rtk is a required dependency: the server exits 78 without one. An rtk the
 # user already has is used as-is and never touched; one this installer places
@@ -534,13 +694,33 @@ function Test-PtkRtkAnswers {
     catch { return $false }
 }
 
+# The path of a working rtk on PATH, or $null.
+function Find-PtkRtk {
+    $existing = Get-Command rtk -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($existing -and (Test-PtkRtkAnswers -Path $existing.Source)) { return $existing.Source }
+    $null
+}
+
+# Asked before anything is staged, so declining leaves the machine untouched.
+# A marker from an earlier run means the user already agreed to an
+# installer-managed rtk: upgrades replace bin/ and refetch it without asking
+# again.
+function Assert-PtkRtkConsent {
+    if (Find-PtkRtk) { return }
+    if (Test-Path -LiteralPath (Join-Path $ptkHome $rtkMarkerName)) { return }
+    $question = 'rtk (required) is not on PATH. Download it from github.com/rtk-ai/rtk into ~/.ptk/bin?'
+    if (Confirm-PtkPrerequisiteInstall -Question $question) { return }
+    throw ('rtk is required and was not installed. Install rtk (https://github.com/rtk-ai/rtk) ' +
+        'so `rtk` is on PATH, or re-run with -InstallPrerequisites to let this installer fetch it.')
+}
+
 function Install-PtkRtk {
     param([Parameter(Mandatory)][string]$TargetRid)
 
-    $existing = Get-Command rtk -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($existing -and (Test-PtkRtkAnswers -Path $existing.Source)) {
-        Write-Host "rtk found on PATH: $($existing.Source)"
+    $existing = Find-PtkRtk
+    if ($existing) {
+        Write-Host "rtk found on PATH: $existing"
         return
     }
 
@@ -1022,6 +1202,10 @@ Assert-PtkRuntimeNotRunning
         Assert-PtkPayloadNotNested -Root $ptkHome
         $targetRid = Get-PtkRid
         $payloadVersion = Get-PtkVersion
+        # Every prerequisite question comes before staging, so a decline
+        # leaves the machine untouched. rtk itself is fetched at cutover.
+        Assert-PtkRtkConsent
+        if (-not $FromRelease) { Assert-PtkSourceBuildPrerequisites -TargetRid $targetRid }
         $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-stage-{0}" -f ([guid]::NewGuid()))
         $snapshot = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-rollback-{0}" -f ([guid]::NewGuid()))
         New-Item -ItemType Directory -Path $staging | Out-Null

@@ -5,6 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Installer prerequisite consent, 2026-10-23 (owner go):** `scripts/install.ps1`
+now asks before installing a missing rtk (previously fetched silently) and,
+for source installs, checks the NativeAOT toolchain (refuses with the install
+command; it needs elevation) and offers a per-user .NET SDK install into
+`~/.dotnet`. `-InstallPrerequisites` agrees in advance; a non-interactive
+session without it refuses. An existing `.ptk-installed-rtk` marker counts as
+prior agreement. Pester guards in the `prerequisite consent` context. Not yet
+exercised: a real accepted rtk download or a real `dotnet-install` run (the
+`NETWATCH-01` Windows host has no SDK or VS C++ tools; the module suite's
+`redirect hook and installer` block fails setup there, same as baseline).
+
 **Release publication authorized, 2026-09-08:** the owner directed completion
 of the new GitHub and package-manager releases. Execution, version, package
 choices, external account prerequisites, and evidence are canonical in

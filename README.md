@@ -361,11 +361,19 @@ download from `releases/download/v<VERSION>/ptk-installer.zip` and pass
 `-FromRelease -Version <VERSION>`.
 
 One installer, `scripts/install.ps1`, runs on every platform. It needs
-PowerShell 7, which is also what ptk runs. `-FromRelease` takes the latest
+PowerShell 7 to run; install it from
+<https://aka.ms/powershell> (on Windows, `winget install Microsoft.PowerShell`).
+The installed ptk does not need it, and the native `ptk` commands above work
+without it. `-FromRelease` takes the latest
 published release, including a prerelease
 (`-Version 0.2.1` pins one); without it, the installer builds this checkout,
 which additionally needs the .NET SDK. Everything after the payload is
 obtained is identical either way.
+
+Missing prerequisites are installed only if you agree. The installer asks
+before staging anything (Enter agrees); `-InstallPrerequisites` agrees in
+advance for unattended installs, and a non-interactive session without it
+stops with manual instructions instead of downloading anything.
 
 Every newly built package has an exact identity independent of its product
 version and source commit. `BUILD-PROVENANCE.json` records the product version,
@@ -387,9 +395,10 @@ The installer:
 - snapshots the prior installer-owned payload and restores it after any
   activation or registration failure;
 - **ensures RTK is present before registering.** RTK is required, so an rtk
-  already on `PATH` is used as-is, and otherwise the matching rtk is fetched
-  from its own releases, verified against its `checksums.txt`, and recorded so
-  uninstall removes only the copy the installer placed. The check probes
+  already on `PATH` is used as-is, and otherwise, with your agreement, the
+  matching rtk is fetched from its own releases, verified against its
+  `checksums.txt`, and recorded so uninstall removes only the copy the
+  installer placed (later upgrades refetch it without asking again). The check probes
   `rtk hook check`, not `rtk --version`: the rewriter has to actually answer.
   If it cannot, the install aborts rather than leaving a server that exits 78;
 - runs the per-agent init, which wires up the detected harnesses — claude,
@@ -436,7 +445,12 @@ Omit `-FromRelease` to build and install this checkout instead. That path
 additionally needs the .NET SDK and the [NativeAOT build prerequisites](https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/):
 Clang and zlib development headers on Linux, Xcode Command Line Tools on macOS,
 or Visual Studio's Desktop development with C++ workload on Windows (including
-ARM64 tools when building win-arm64).
+ARM64 tools when building win-arm64). The installer checks these before
+building. A missing .NET SDK is offered as a per-user install into
+`~/.dotnet` through Microsoft's `dotnet-install` script, whose Authenticode
+signature is verified on Windows. A missing native toolchain needs admin or
+sudo, which the installer refuses to run under, so it stops and prints the
+install command instead.
 
 The redirect hook is a standalone native `bin/ptk-hook` (`ptk-hook.exe` on
 Windows). Each hook call reads JSON and returns a deny decision with guidance;

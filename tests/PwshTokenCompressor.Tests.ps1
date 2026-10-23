@@ -1766,31 +1766,46 @@ Describe 'development package layout' {
             { & $probe $false } | Should -Not -Throw
         }
 
-        It 'checks the toolchain before offering the SDK, and installs the SDK only on agreement' {
-            $body = & $extractFunction $installerSource 'Assert-PtkSourceBuildPrerequisites'
+        It 'refuses a missing toolchain with the install command and the release fallback' {
+            $body = & $extractFunction $installerSource 'Assert-PtkNativeToolchain'
             $body | Should -Not -BeNullOrEmpty
-            # Arguments are code fragments: the toolchain problem expression,
-            # then the SDK-present and agree booleans.
             $probe = {
-                param($problem, $sdkPresent, $agree)
+                param($problem)
+                & ([scriptblock]::Create(
+                        "`$sourceBuildFallback = 'use -FromRelease'`n" + $body +
+                        "`nfunction Get-PtkNativeToolchainProblem { $problem }" +
+                        "`nAssert-PtkNativeToolchain -TargetRid 'linux-x64'"))
+            }
+            { & $probe "'NativeAOT needs clang'" } |
+                Should -Throw -ExpectedMessage '*NativeAOT needs clang*-FromRelease*'
+            { & $probe '$null' } | Should -Not -Throw
+        }
+
+        It 'installs a missing SDK only on agreement' {
+            $body = & $extractFunction $installerSource 'Assert-PtkDotnetSdk'
+            $body | Should -Not -BeNullOrEmpty
+            $probe = {
+                param($sdkPresent, $agree)
                 & ([scriptblock]::Create(
                         "`$dotnetSdkMajor = 10; `$userDotnetRoot = 'sdk-root'`n" + $body +
-                        "`nfunction Get-PtkNativeToolchainProblem { $problem }" +
                         "`nfunction Test-PtkDotnetSdk { `$$sdkPresent }" +
                         "`nfunction Confirm-PtkPrerequisiteInstall { `$$agree }" +
                         "`nfunction Install-PtkDotnetSdk { 'installed' }" +
-                        "`nAssert-PtkSourceBuildPrerequisites -TargetRid 'linux-x64'"))
+                        "`nAssert-PtkDotnetSdk"))
             }
-            { & $probe "'NativeAOT needs clang'" $false $true } |
-                Should -Throw -ExpectedMessage '*NativeAOT needs clang*-FromRelease*'
-            & $probe '$null' $true $true | Should -BeNullOrEmpty
-            { & $probe '$null' $false $false } | Should -Throw -ExpectedMessage '*-InstallPrerequisites*'
-            & $probe '$null' $false $true | Should -Be 'installed'
+            & $probe $true $true | Should -BeNullOrEmpty
+            { & $probe $false $false } | Should -Throw -ExpectedMessage '*-InstallPrerequisites*'
+            & $probe $false $true | Should -Be 'installed'
         }
 
-        It 'asks every prerequisite question before staging' {
-            $installerSource | Should -Match ('Assert-PtkRtkConsent\s*\r?\n\s*' +
-                'if \(-not \$FromRelease\) \{ Assert-PtkSourceBuildPrerequisites -TargetRid \$targetRid \}' +
+        # Observed 2026-10-23 on a host without VS C++ tools: the installer
+        # asked about rtk, then refused the build anyway. Checks that need no
+        # answer come first; every question still precedes staging.
+        It 'refuses a doomed build before asking anything, and asks before staging' {
+            $installerSource | Should -Match (
+                'if \(-not \$FromRelease\) \{ Assert-PtkNativeToolchain -TargetRid \$targetRid \}' +
+                '\s*\r?\n\s*Assert-PtkRtkConsent' +
+                '\s*\r?\n\s*if \(-not \$FromRelease\) \{ Assert-PtkDotnetSdk \}' +
                 '\s*\r?\n\s*\$staging = Join-Path')
         }
     }

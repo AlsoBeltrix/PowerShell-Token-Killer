@@ -646,20 +646,24 @@ function Get-PtkNativeToolchainProblem {
         '  sudo dnf install clang zlib-devel        # Fedora/RHEL'
 }
 
-# Run before anything is staged. The toolchain is checked first so a build
-# that cannot succeed never installs an SDK on the way to failing.
-function Assert-PtkSourceBuildPrerequisites {
+$sourceBuildFallback = 'To skip building, install a prebuilt release with -FromRelease instead.'
+
+# Checked before any prerequisite question: a build that cannot succeed must
+# not ask about, or install, anything on the way to failing.
+function Assert-PtkNativeToolchain {
     param([Parameter(Mandatory)][string]$TargetRid)
-    $fallback = 'To skip building, install a prebuilt release with -FromRelease instead.'
     $problem = Get-PtkNativeToolchainProblem -TargetRid $TargetRid
-    if ($problem) { throw "$problem`nInstall it, then re-run this installer. $fallback" }
+    if ($problem) { throw "$problem`nInstall it, then re-run this installer. $sourceBuildFallback" }
+}
+
+function Assert-PtkDotnetSdk {
     if (Test-PtkDotnetSdk) { return }
     $question = ("Building this checkout needs the .NET $dotnetSdkMajor SDK, which was not found. " +
         "Install it for this user into $userDotnetRoot?")
     if (-not (Confirm-PtkPrerequisiteInstall -Question $question)) {
         throw ("The .NET $dotnetSdkMajor SDK is required to build this checkout " +
             '(https://dotnet.microsoft.com/download); re-run with -InstallPrerequisites to let ' +
-            "this installer fetch it. $fallback")
+            "this installer fetch it. $sourceBuildFallback")
     }
     Install-PtkDotnetSdk
 }
@@ -1202,10 +1206,12 @@ Assert-PtkRuntimeNotRunning
         Assert-PtkPayloadNotNested -Root $ptkHome
         $targetRid = Get-PtkRid
         $payloadVersion = Get-PtkVersion
-        # Every prerequisite question comes before staging, so a decline
-        # leaves the machine untouched. rtk itself is fetched at cutover.
+        # Checks that need no answer run first, then every prerequisite
+        # question, all before staging, so a refusal or decline leaves the
+        # machine untouched. rtk itself is fetched at cutover.
+        if (-not $FromRelease) { Assert-PtkNativeToolchain -TargetRid $targetRid }
         Assert-PtkRtkConsent
-        if (-not $FromRelease) { Assert-PtkSourceBuildPrerequisites -TargetRid $targetRid }
+        if (-not $FromRelease) { Assert-PtkDotnetSdk }
         $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-stage-{0}" -f ([guid]::NewGuid()))
         $snapshot = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-rollback-{0}" -f ([guid]::NewGuid()))
         New-Item -ItemType Directory -Path $staging | Out-Null

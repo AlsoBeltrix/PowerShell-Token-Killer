@@ -73,9 +73,18 @@ validation jobs passed, then:
   `SHA256SUMS` and pass local `winget validate`. `f0b92cd` removed the
   "signed" claim from the PR body.
 
+- **winget**: the owner ran the publisher, opening
+  [microsoft/winget-pkgs#460717](https://github.com/microsoft/winget-pkgs/pull/460717).
+  Its files landed under the owner's existing `manifests/r/Roethlar/`
+  folder with the lowercase `roethlar.PowerShellTokenKiller` identifier;
+  the bot labeled it `Manifest-Validation-Error` ("The path and
+  PackageIdentifier are case sensitive"). `6317f79` switched the
+  identifier to `Roethlar.PowerShellTokenKiller`; validation-only run
+  `40066034251` passed all seven jobs with it.
+
 ## Still required
 
-- winget PR from the operator `gh` session (`roethlar`): the agent's
-  `publish-package-manifests.py winget` call was refused by the auto-mode
-  classifier. A submitted PR is pending until winget-pkgs merges it.
+- Update #460717's branch with run `40066034251`'s manifests and fix its
+  title (operator action; scratchpad script `update-winget-pr.ps1`), then
+  watch the winget-pkgs pipeline. The PR is pending until merged.
 - Confirm AUR RPC indexing.

@@ -31,12 +31,38 @@ validation fixes (`06f9074`).
 - Release notes are prepared outside the repository (operator scratchpad);
   they are attached at publication.
 
+## Publication (2026-10-24)
+
+- Published by the owner (the agent's call was refused by the auto-mode
+  classifier) at 2026-10-24T04:19:13Z as a prerelease; tag → `74aaeaf`.
+- Public bootstrap proof passed: the README snippet, run unchanged in an
+  isolated home on `NETWATCH-01`, installed `0.3.0-rc.5+74aaeaf`; the
+  installed `scripts/` carries `test-handshake.ps1`. Recorded in the notes.
+
+## Package channels
+
+The release-event run `40061870699` (workflow at the rc.5 tag) failed
+validation, so nothing was published. Fixes on `master`, each found by a
+validation-only run against the published rc.5:
+
+- `b19fd29`: Homebrew `brew audit --strict` rejected the redundant formula
+  `version`; winget runner images need the latest winget for 1.12.0 schema
+  headers (which winget-pkgs uses).
+- `bf1ad83`: install that winget for the current user (`-AllUsers` fails on
+  the Server image, 0x80073CF1).
+- `a2a5094`: **real defect** — a winget-installed `ptk` could not start
+  through the `WinGet\Links` symlink (the .NET apphost looks for
+  `PtkMcpServer.dll` beside the link). The manifest now sets
+  `ArchiveBinariesDependOnPath`, which puts `bin\` on PATH (winget-cli
+  `PortableInstaller.cpp`: `symlinkTargetPath.parent_path()`).
+- `b707272`: uninstall the local-manifest validation install by manifest.
+
+Validation-only run `40063229735` at `b707272` passed all seven jobs
+(Homebrew ×3, Windows Scoop+winget ×2, AUR, manifests).
+
 ## Still required
 
-- Publication. The agent's publish call was refused by the Claude Code auto
-  mode classifier ("Create Public Surface"); the owner publishes or approves
-  the call.
-- Public bootstrap proof against the published release, in an isolated home.
-- Package channels: publishing fires `publish-packages.yml` at the rc.5 tag,
-  which includes both validation fixes. Then open the winget PR with the
-  operator `gh` session and confirm each channel's real availability.
+- `publish-packages.yml` dispatch from `master` for `0.3.0-rc.5` (refused
+  to the agent by the auto-mode classifier; owner runs or approves it).
+- winget PR via the operator `gh` session; confirm each channel's real
+  availability.

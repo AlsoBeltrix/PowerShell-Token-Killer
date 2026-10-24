@@ -399,7 +399,7 @@ The installer:
   matching rtk is fetched from its own releases, verified against its
   `checksums.txt`, and recorded so uninstall removes only the copy the
   installer placed (later upgrades refetch it without asking again). The check probes
-  `rtk hook check`, not `rtk --version`: the rewriter has to actually answer.
+  `rtk rewrite`, not `rtk --version`: the rewriter has to actually answer.
   If it cannot, the install aborts rather than leaving a server that exits 78;
 - runs the per-agent init, which wires up the detected harnesses — claude,
   codex, grok, agy, kimi — after one pacman-style consent prompt listing what
@@ -552,12 +552,15 @@ rtk already on `PATH` is used as-is and never touched, and otherwise the
 matching build is downloaded from RTK's own releases, verified against its
 `checksums.txt`, and placed in `~/.ptk/bin`. Uninstall removes only a copy the
 installer placed. Windows ARM64 has no upstream aarch64 rtk and runs the x64
-build under emulation; the installer probes `rtk hook check` to confirm that
+build under emulation; the installer probes `rtk rewrite` to confirm that
 actually works before completing.
 
 Routing is RTK's decision, not PTK's. PTK submits the exact submitted text to
-`rtk hook check`; when RTK returns a rewrite, PTK executes that, and when RTK
-declines, PTK executes the original text unchanged. RTK decomposes `&&`, `||`,
+`rtk rewrite`, the entry point RTK documents for integrations; when RTK returns
+a rewrite (exit 0, or 3 where RTK would have a host ask first), PTK executes
+that, and when RTK declines, PTK executes the original text unchanged.
+`rtk rewrite` consults Claude Code's permission rules for every integration, so
+a command those rules deny runs unrewritten; PTK does not enforce those rules. RTK decomposes `&&`, `||`,
 and `;` and rewrites each segment it recognizes while preserving the rest, so
 compound commands route without PTK modelling any of it.
 

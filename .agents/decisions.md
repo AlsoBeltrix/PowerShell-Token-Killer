@@ -34,6 +34,32 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-10-23): PTK asks RTK through `rtk rewrite`, accepting exit 0 and 3
+
+**Status:** Active — the owner approved this approach on 2026-10-23 after
+rtk 1.0.1 broke the release build. It refines, and does not reverse, the
+"RTK decides" routing authority of 2026-08-03 (`docs/history/state-archive.md`).
+
+PTK previously asked `rtk hook check --agent ptk <command>`. That is RTK's
+dry-run diagnostic, not an integration contract: rtk 0.48 ignored `--agent`,
+and rtk 1.0 rejects names it does not know with exit 2, which declined every
+PTK rewrite and failed the installer and release probes. RTK documents
+`rtk rewrite <command>` as the entry point for integrations it does not host
+in-process (its Hermes, OpenClaw, OpenCode, and Pi plugins). Its exit codes
+are identical in 0.48 and 1.0: 0 rewrite, 3 rewrite the host should ask
+about, 1 no rewrite, 2 a deny rule in Claude Code's settings matched.
+
+PTK, the installer probe, and the release and CI probes call `rtk rewrite`
+and accept exit 0 or 3. PTK never prompts per command: the harness approved
+the PTK call, and the rewrite only changes the output path. Real rtk answers 3
+for an ordinary rewrite when no allow rule covers it (observed on both 0.48.0
+and 1.0.1), so accepting only 0 would disable routing for most users. Every
+other answer, including 2, runs the original unchanged; PTK does not enforce
+Claude Code's rules, which RTK itself says are not a security boundary.
+Rejected: borrowing a rules-only agent name for `hook check` (an unowned
+label whose behavior RTK can change), and pinning rtk 0.48 (does not help
+users who already have 1.x).
+
 ### ACTIVE (2026-09-04): build and verify `0.3.0-rc.2` without publication
 
 The owner stated that they are the only current user, then approved building

@@ -690,10 +690,12 @@ function Get-PtkRtkAssetName {
 function Test-PtkRtkAnswers {
     param([Parameter(Mandatory)][string]$Path)
     # A version banner only proves the image loaded. ptk depends on the
-    # rewriter answering, which is what must work under emulation.
+    # rewriter answering, which is what must work under emulation. This is
+    # the server's own question (`rtk rewrite`): exit 0 or 3 carries the
+    # rewrite (rtk 1.x answers 3 when no allow rule covers the command).
     try {
-        $rewritten = & $Path hook check --agent ptk 'git status --short' 2>$null
-        return $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($rewritten)
+        $rewritten = & $Path rewrite 'git status --short' 2>$null
+        return $LASTEXITCODE -in 0, 3 -and -not [string]::IsNullOrWhiteSpace($rewritten)
     }
     catch { return $false }
 }
@@ -775,7 +777,7 @@ function Install-PtkRtk {
                 ' On Windows ARM64 the x64 rtk runs under emulation; check that x64 emulation is available.'
             }
             else { '' }
-            throw ("The installed rtk did not answer 'hook check'.$hint " +
+            throw ("The installed rtk did not answer 'rtk rewrite'.$hint " +
                 'ptk would refuse to start, so this install is being stopped.')
         }
         Set-Content -LiteralPath (Join-Path $ptkHome $rtkMarkerName) -Value $target -NoNewline

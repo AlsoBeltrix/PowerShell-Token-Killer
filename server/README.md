@@ -119,9 +119,9 @@ runspace's current directory and environment still apply.
 
 Routing rules:
 
-- RTK decides. PTK submits the exact submitted text to
-  `rtk hook check --agent ptk` and either runs the rewrite RTK returns or runs
-  the original unchanged. It does not judge eligibility from the PowerShell
+- RTK decides. PTK submits the exact submitted text to `rtk rewrite` and
+  either runs the rewrite RTK returns (exit 0 or 3) or runs the original
+  unchanged (any other answer, including a deny rule's exit 2). It does not judge eligibility from the PowerShell
   AST and does not resolve executables against PATH.
 - RTK rewrites each segment of a compound command it recognizes and preserves
   the rest, so `git status && cargo test` routes both halves. Heredocs,

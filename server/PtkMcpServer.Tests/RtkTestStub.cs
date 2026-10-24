@@ -8,7 +8,8 @@ internal static class RtkTestStub
     internal static (DirectoryInfo Directory, string Path) Create(
         string body,
         string? parentDirectory = null,
-        string? fileName = null)
+        string? fileName = null,
+        bool answerRewrite = true)
     {
         var directory = parentDirectory is null
             ? Directory.CreateTempSubdirectory("ptk-rtk-route-")
@@ -22,7 +23,7 @@ internal static class RtkTestStub
             OperatingSystem.IsWindows()
                 ? Path.ChangeExtension(requestedName, ".exe")
                 : requestedName);
-        Write(path, body);
+        Write(path, body, answerRewrite);
         return (directory, path);
     }
 
@@ -41,37 +42,42 @@ internal static class RtkTestStub
         return fixture;
     }
 
-    internal static void Write(string path, string body)
+    // answerRewrite: false leaves the `rewrite` question to the body, for
+    // tests of the rewrite contract itself.
+    internal static void Write(string path, string body, bool answerRewrite = true)
     {
         if (OperatingSystem.IsWindows())
         {
             InstallOrMutateWindowsFixture(path, body);
             File.WriteAllText(
                 Path.ChangeExtension(path, ".cmd"),
-                "@echo off\r\n" + WindowsHookCheckPreamble + body.Replace("\n", "\r\n") + "\r\n");
+                "@echo off\r\n" + (answerRewrite ? WindowsRewritePreamble : "") +
+                body.Replace("\n", "\r\n") + "\r\n");
             return;
         }
 
         File.WriteAllText(
             path,
-            "#!/bin/sh\n" + UnixHookCheckPreamble +
+            "#!/bin/sh\n" + (answerRewrite ? UnixRewritePreamble : "") +
             body.Replace("%*", "\"$@\"").Replace("exit /b ", "exit ") + "\n");
         File.SetUnixFileMode(
             path,
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
-    // Real rtk answers `hook check --agent <a> <command>` on stdout with the
-    // rewritten command, prefixing `rtk ` onto each segment it recognizes, and
-    // exits non-zero when it declines. Production asks that question before
-    // every routed call, so every stub must answer it the same way — otherwise
-    // the stub's own argument echo would masquerade as a rewrite. The stub
+    // Real rtk answers `rewrite <command>` on stdout with the rewritten
+    // command, prefixing `rtk ` onto each segment it recognizes, and exits 1
+    // when it has no rewrite. Production asks that question before every
+    // routed call, so every stub must answer it the same way — otherwise the
+    // stub's own argument echo would masquerade as a rewrite. The stub
     // recognizes exactly the single-command shape its callers route, which
-    // keeps the answer verifiable against the real binary's behavior.
+    // keeps the answer verifiable against the real binary's behavior. It
+    // answers with exit 0; rtk 1.x often answers 3 (rewrite, host asks), which
+    // RtkCommandRewriterTests covers directly.
     //
     // The body below the preamble still handles the routed execution itself
     // (`rtk <command> ...`), which is what each test asserts against.
-    // `%~5` strips the surrounding quotes cmd keeps on the passed argument;
+    // `%~2` strips the surrounding quotes cmd keeps on the passed argument;
     // real rtk returns a bare command line, and production rejects a rewrite
     // that does not reduce to the submitted text once `rtk ` prefixes are
     // removed.
@@ -82,19 +88,17 @@ internal static class RtkTestStub
     // declines (exit 1, no stdout) whenever the submitted script contains a
     // quote — matching upstream behavior instead of emitting a malformed
     // rewrite the guard would refuse anyway.
-    private const string WindowsHookCheckPreamble =
-        "if /I \"%1\"==\"hook\" (\r\n" +
-        "  if /I \"%2\"==\"check\" (\r\n" +
-        "    echo.%~5| findstr /C:\"\\\"\" >nul && exit /b 1\r\n" +
-        "    echo rtk %~5\r\n" +
-        "    exit /b 0\r\n" +
-        "  )\r\n" +
+    private const string WindowsRewritePreamble =
+        "if /I \"%1\"==\"rewrite\" (\r\n" +
+        "  echo.%~2| findstr /C:\"\\\"\" >nul && exit /b 1\r\n" +
+        "  echo rtk %~2\r\n" +
+        "  exit /b 0\r\n" +
         ")\r\n";
 
-    private const string UnixHookCheckPreamble =
-        "if [ \"$1\" = \"hook\" ] && [ \"$2\" = \"check\" ]; then\n" +
-        "  case \"$5\" in *\\\"*) exit 1;; esac\n" +
-        "  echo \"rtk $5\"\n" +
+    private const string UnixRewritePreamble =
+        "if [ \"$1\" = \"rewrite\" ]; then\n" +
+        "  case \"$2\" in *\\\"*) exit 1;; esac\n" +
+        "  echo \"rtk $2\"\n" +
         "  exit 0\n" +
         "fi\n";
 

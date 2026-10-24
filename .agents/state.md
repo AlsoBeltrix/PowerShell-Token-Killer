@@ -5,6 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
+**rtk 1.0 contract repair and rc.4, 2026-10-23 (owner go):** the first
+`0.3.0-rc.4` release run `40047540862` (branch `release/0.3.0-rc.4` at
+`deee603`) failed on all five legs: rtk 1.0.1 rejects
+`hook check --agent ptk` with exit 2, which also silently disabled routing for
+any user on rtk 1.x and broke the installer probe. PTK now uses the documented
+`rtk rewrite` contract and accepts exit 0/3 (decision in `.agents/decisions.md`).
+Verified on `NETWATCH-01` against real rtk 1.0.1 and 0.48.0 (both answer 3 for
+`git status --short`; a live server call reported `effective=rtk` on both). CI
+now probes the real rtk. Next: green CI on the fix, then a fresh rc.4 build
+from that commit (the failed run produced no draft).
+
 **Installer prerequisite consent, 2026-10-23 (owner go):** `scripts/install.ps1`
 now asks before installing a missing rtk (previously fetched silently) and,
 for source installs, checks the NativeAOT toolchain (refuses with the install

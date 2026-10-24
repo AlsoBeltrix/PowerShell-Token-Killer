@@ -105,15 +105,16 @@ jobs:
 
       # A version banner only proves the loader started the image. PTK depends
       # on the rewriter answering, which is what actually has to work under
-      # win-arm64 emulation.
-      - name: Verify RTK answers hook check
+      # win-arm64 emulation. This is the server's own question (`rtk rewrite`,
+      # see RtkCommandRewriter): exit 0 or 3 carries the rewrite.
+      - name: Verify RTK answers rewrite
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           rtk --version
-          $rewritten = rtk hook check --agent ptk 'git status --short' 2>$null
-          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($rewritten)) {
-            throw "rtk hook check did not answer on ${{ matrix.rid }} (exit $LASTEXITCODE)"
+          $rewritten = rtk rewrite 'git status --short' 2>$null
+          if ($LASTEXITCODE -notin 0, 3 -or [string]::IsNullOrWhiteSpace($rewritten)) {
+            throw "rtk rewrite did not answer on ${{ matrix.rid }} (exit $LASTEXITCODE)"
           }
           Write-Host "rtk rewrote to: $rewritten"
 

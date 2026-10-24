@@ -8,12 +8,26 @@ namespace PtkMcpServer;
 /// per-command filters. RTK owns the decision: PTK submits the exact text and
 /// either runs what comes back or runs the original unchanged.
 ///
-/// The upstream contract is <c>rtk hook check --agent ptk &lt;command&gt;</c>
-/// (rtk's <c>rewrite_command</c>): exit 0 with the rewritten command on stdout,
-/// or a non-zero exit with an explanatory line on stderr. RTK decomposes
+/// The upstream contract is <c>rtk rewrite &lt;command&gt;</c>, the entry point
+/// rtk documents for every integration it does not host in-process (its own
+/// Hermes, OpenClaw, OpenCode, and Pi plugins use it). Its exit codes are the
+/// same from rtk 0.4x through 1.x: 0 prints a rewrite needing no approval, 3
+/// prints a rewrite the host should ask about, 1 means no rewrite, and 2 means
+/// a deny rule in the user's Claude Code settings matched. RTK decomposes
 /// <c>&amp;&amp;</c>, <c>||</c>, and <c>;</c> and rewrites each segment it
 /// recognizes while preserving the others, so the result stays a shell command
 /// line that PowerShell 7 runs natively.
+///
+/// PTK accepts both 0 and 3. Approval is not RTK's to give here: the harness
+/// already approved the PTK call, and PTK runs either the rewrite or the
+/// original, so the choice changes only the output path, never whether the
+/// command runs. rtk 1.x answers 3 for an ordinary rewrite when no allow rule
+/// covers it, so accepting only 0 would silently stop routing for most users.
+/// A deny (2) declines to the original unchanged, as every other decline does.
+///
+/// <c>rtk hook check</c> is a dry-run diagnostic, not this contract: rtk 1.0
+/// began rejecting agent names it does not know with exit 2, which turned
+/// every PTK rewrite into a decline.
 ///
 /// stderr is advisory only (rtk may print a hook-not-installed notice) and is
 /// never read for the routing decision.
@@ -32,6 +46,10 @@ internal static class RtkCommandRewriter
     /// beyond this is not a shape PTK will execute.
     /// </summary>
     internal const int MaximumRewriteCharacters = 8 * 1024;
+
+    /// <summary><c>rtk rewrite</c> exit codes that carry a rewrite on stdout.</summary>
+    private const int RewriteAllowed = 0;
+    private const int RewriteAsk = 3;
 
     private static readonly UTF8Encoding Utf8 = new(false, false);
 
@@ -64,10 +82,7 @@ internal static class RtkCommandRewriter
                 StandardOutputEncoding = Utf8,
                 StandardErrorEncoding = Utf8,
             };
-            startInfo.ArgumentList.Add("hook");
-            startInfo.ArgumentList.Add("check");
-            startInfo.ArgumentList.Add("--agent");
-            startInfo.ArgumentList.Add("ptk");
+            startInfo.ArgumentList.Add("rewrite");
             startInfo.ArgumentList.Add(script);
             if (!string.IsNullOrWhiteSpace(workingDirectory) &&
                 Path.IsPathFullyQualified(workingDirectory))
@@ -94,7 +109,7 @@ internal static class RtkCommandRewriter
             // WaitForExit(int) can return before the async readers complete.
             if (!Task.WhenAll(stdout, stderr).Wait(Budget))
                 return null;
-            if (process.ExitCode != 0)
+            if (process.ExitCode is not (RewriteAllowed or RewriteAsk))
                 return null;
 
             return AcceptRewrite(script, stdout.Result);

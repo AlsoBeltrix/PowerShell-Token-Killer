@@ -54,9 +54,20 @@ jobs:
           Expand-Archive -Path $zip -DestinationPath $dest -Force
           $dest | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Verify RTK
-        shell: bash
-        run: rtk --version
+      # The tests use an rtk stub, so this is CI's only contact with the real
+      # rewriter. Ask it the server's own question (`rtk rewrite`, see
+      # RtkCommandRewriter) so an upstream contract change fails here rather
+      # than first in a release build (rtk 1.0 broke `hook check --agent ptk`).
+      - name: Verify RTK answers rewrite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rtk --version
+          $rewritten = rtk rewrite 'git status --short' 2>$null
+          if ($LASTEXITCODE -notin 0, 3 -or [string]::IsNullOrWhiteSpace($rewritten)) {
+            throw "rtk rewrite did not answer (exit $LASTEXITCODE)"
+          }
+          Write-Host "rtk rewrote to: $rewritten"
 
       # Pester 5 is preinstalled on all three runner images (slice-0 probe);
       # the install is a fallback for runner-image drift.

@@ -212,7 +212,7 @@ public sealed class ExecutionPlannerTests
     /// the caller's name.
     /// </summary>
     [Theory]
-    [InlineData("hook check --agent ptk git status")]   // argument echo
+    [InlineData("rewrite git status")]                  // argument echo
     [InlineData("rtk git push")]                        // edited command
     [InlineData("rtk git status && rm -rf /")]          // appended command
     [InlineData("git status")]                          // nothing wrapped

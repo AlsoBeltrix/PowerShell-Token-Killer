@@ -81,10 +81,14 @@ validation jobs passed, then:
   PackageIdentifier are case sensitive"). `6317f79` switched the
   identifier to `Roethlar.PowerShellTokenKiller`; validation-only run
   `40066034251` passed all seven jobs with it.
+- The owner pushed those manifests to the PR branch as a case-only rename
+  (head `9343e1c`; committed blobs byte-identical to the validated files)
+  and retitled it "New package: Roethlar.PowerShellTokenKiller version
+  0.3.0-rc.5".
+- **AUR** RPC indexed `ptk-bin` `0.3.0rc5-1` (maintainer `roethlar`),
+  confirmed 2026-10-24.
 
 ## Still required
 
-- Update #460717's branch with run `40066034251`'s manifests and fix its
-  title (operator action; scratchpad script `update-winget-pr.ps1`), then
-  watch the winget-pkgs pipeline. The PR is pending until merged.
-- Confirm AUR RPC indexing.
+- Watch the winget-pkgs pipeline on `9343e1c`. The PR is pending until
+  merged.

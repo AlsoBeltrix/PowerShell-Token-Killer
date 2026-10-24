@@ -109,9 +109,16 @@ fi
 printf '%s\n' "${canonical_manifest_entries[@]}" > "$asset_dir/SHA256SUMS"
 assets=("${required_assets[@]}" "$asset_dir/SHA256SUMS")
 
+# A version with a pre-release label (0.3.0-rc.4) must not become the
+# repository's Latest release when the owner publishes it; rc.3 and rc.4
+# drafts needed a manual `gh release edit --prerelease`.
+prerelease=()
+[[ "$version" == *-* ]] && prerelease=(--prerelease)
+
 gh release create "$tag" \
   -R "$repository" \
   --draft \
+  ${prerelease[@]+"${prerelease[@]}"} \
   --target "$target_sha" \
   --title "ptk $version" \
   --notes "Draft build for $version. Every asset was built and smoke-tested on its own native runner. Verify downloads against SHA256SUMS." \

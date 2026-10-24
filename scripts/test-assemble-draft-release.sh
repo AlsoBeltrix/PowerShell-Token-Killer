@@ -191,6 +191,10 @@ PTK_GH_MODE=absent PTK_GH_LOG="$log" \
     v9.8.7-test 9.8.7-test "$sha" "$work/assets"
 grep -Fq 'api --paginate repos/AlsoBeltrix/PowerShell-Token-Killer/releases?per_page=100' "$log"
 grep -Fq 'release create v9.8.7-test' "$log"
+grep -E 'release create v9\.8\.7-test .*--draft --prerelease ' "$log" >/dev/null || {
+  echo 'a pre-release version was not created as a prerelease draft' >&2
+  exit 1
+}
 verify_checksum_consumer
 if grep -Fq 'unexpected.txt' "$log"; then
   echo 'draft assembler included an unvalidated extra asset' >&2

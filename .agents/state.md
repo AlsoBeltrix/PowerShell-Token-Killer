@@ -13,8 +13,15 @@ any user on rtk 1.x and broke the installer probe. PTK now uses the documented
 `rtk rewrite` contract and accepts exit 0/3 (decision in `.agents/decisions.md`).
 Verified on `NETWATCH-01` against real rtk 1.0.1 and 0.48.0 (both answer 3 for
 `git status --short`; a live server call reported `effective=rtk` on both). CI
-now probes the real rtk. Next: green CI on the fix, then a fresh rc.4 build
-from that commit (the failed run produced no draft).
+now probes the real rtk. CI `40049412169` at `061a3b1` passed all six jobs.
+Second rc.4 release run `40050237185` (branch moved to `061a3b1`): linux-x64,
+linux-arm64, and osx-arm64 (signing and notarization) passed; both Windows
+legs failed in Azure Trusted Signing with `403 (Forbidden)` from
+`CertificateProfileRestClient.SignAsync` after authentication succeeded
+(account `roethlar-app-signing`, profile `public-trust`, app
+`github-signing`). No draft was created. Owner-side Azure check needed (role
+assignment, profile/identity-validation state, subscription); then rerun the
+failed legs with `gh run rerun 40050237185 --failed`.
 
 **Installer prerequisite consent, 2026-10-23 (owner go):** `scripts/install.ps1`
 now asks before installing a missing rtk (previously fetched silently) and,

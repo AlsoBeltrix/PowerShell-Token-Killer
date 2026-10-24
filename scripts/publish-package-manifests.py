@@ -63,7 +63,8 @@ def publish(channel, manifests, version, proof_url, work):
         run("git", "push", "--set-upstream", "origin", branch, cwd=checkout)
         body = work / "winget-pr.md"
         body.write_text(f"Adds PowerShell Token Killer {version} for x64 and ARM64 Windows. "
-            "The signed self-contained ZIP installs the native `ptk` command and declares RTK as a dependency. "
+            "The self-contained ZIP (checksum-verified, not publisher-signed) installs the native `ptk` command "
+            "and declares RTK as a dependency. "
             "Harness registration is explicit via `ptk init --agent codex`.\n\n"
             f"Validation: [native package installation and removal]({proof_url}).\n", encoding="utf-8")
         run("gh", "pr", "create", "--repo", "microsoft/winget-pkgs", "--head", "roethlar:" + branch,

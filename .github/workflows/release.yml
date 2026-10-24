@@ -155,69 +155,13 @@ jobs:
       # intermediate is imported alongside it because codesign refuses an
       # identity whose chain cannot validate (the exact failure first hit on
       # the dev machine).
-      # Every PE binary in the payload is Trusted Signing-signed BEFORE any
-      # gate runs, so the smoke test and product proof below exercise the
-      # exact signed bits that ship. The action authenticates the
-      # github-signing app registration directly with a client secret (no
-      # separate OIDC federated-credential step); that registration holds
-      # only the Certificate Profile Signer role on the signing account, so
-      # a compromised secret cannot do anything beyond sign artifacts. Runs
-      # on win-arm64 too: the action is a PowerShell module invocation, no
-      # native x64-only tooling, and win-arm64 already runs the x64 RTK
-      # binary under emulation without issue.
-      # The Trusted Signing dlib is C++/CLI and ships x64/x86 only (no arm64
-      # build exists in Microsoft.Trusted.Signing.Client), so on this runner
-      # it executes under x64 emulation and needs an x64 .NET runtime the
-      # arm64 image does not carry — without one, signtool dies with a bare
-      # exit 3 before ever reaching the service. Proved by the rc.3 split:
-      # win-x64 signed cleanly with identical credentials while win-arm64
-      # failed in two seconds. net8.0, rollForward Major, per the dlib's own
-      # runtimeconfig; DOTNET_ROOT_X64 is where an x64 host process on arm64
-      # Windows probes for its runtime.
-      - name: Install the x64 .NET runtime the signing dlib needs (arm64)
-        if: matrix.rid == 'win-arm64'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $script = Join-Path ([IO.Path]::GetTempPath()) 'dotnet-install.ps1'
-          Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $script
-          & $script -Runtime dotnet -Channel 8.0 -Architecture x64 `
-            -InstallDir 'C:\Program Files\dotnet\x64'
-          "DOTNET_ROOT_X64=C:\Program Files\dotnet\x64" >> $env:GITHUB_ENV
-
-      - name: Sign the Windows payload
-        if: startsWith(matrix.rid, 'win-')
-        uses: azure/trusted-signing-action@v0.5.9
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          certificate-profile-name: public-trust
-          files-folder: ${{ github.workspace }}\out\ptk\bin
-          files-folder-filter: exe,dll
-          files-folder-recurse: true
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
-
-      - name: Sign the Windows SIEM receiver payload
-        if: startsWith(matrix.rid, 'win-')
-        uses: azure/trusted-signing-action@v0.5.9
-        with:
-          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
-          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          certificate-profile-name: public-trust
-          files-folder: ${{ github.workspace }}\out\ptk-siem
-          files-folder-filter: exe,dll
-          files-folder-recurse: true
-          file-digest: SHA256
-          timestamp-rfc3161: http://timestamp.acs.microsoft.com
-          timestamp-digest: SHA256
+      # Windows payloads are not publisher code-signed (owner decision
+      # 2026-10-23): the Azure Trusted Signing account that signed v0.2.1
+      # through 0.3.0-rc.3 no longer exists, and its signing request now
+      # returns 403. Like Linux, Windows integrity rests on SHA256SUMS, and
+      # the Defender scan in the product proof still gates every Windows
+      # artifact. The removed steps (git history before this change) also
+      # needed an x64 .NET runtime on win-arm64 for the C++/CLI signing dlib.
 
       - name: Sign the macOS payload
         if: startsWith(matrix.rid, 'osx-')

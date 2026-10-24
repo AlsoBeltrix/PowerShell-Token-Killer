@@ -35,10 +35,11 @@ for every supported RID:
 | `linux-arm64` | `ptk-<version>-linux-arm64.tar.gz` | `ptk-siem-receiver-<version>-linux-arm64.tar.gz` |
 | `osx-arm64` | `ptk-<version>-osx-arm64.tar.gz` | `ptk-siem-receiver-<version>-osx-arm64.tar.gz` |
 
-State that Windows assets are publisher-signed, macOS ARM64 assets are
-Developer ID signed and notarized, and Linux assets rely on the published
-SHA-256 manifest only after those facts have been independently verified on
-the downloaded archives.
+State that macOS ARM64 assets are Developer ID signed and notarized, and that
+Windows (from 0.3.0-rc.4) and Linux assets are not publisher code-signed and
+rely on the published SHA-256 manifest, only after those facts have been
+independently verified on the downloaded archives. Note that Windows
+SmartScreen may warn about the unsigned executables.
 
 ## Known limitations
 

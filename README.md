@@ -299,9 +299,9 @@ an alternate package root for setup or diagnostics.
 ### Public install
 
 Installs self-contained release binaries without cloning this repository or
-requiring the .NET SDK. Windows and macOS assets carry the platform signatures
-described below; Linux assets use checksum integrity and are not publisher
-code-signed:
+requiring the .NET SDK. macOS assets carry the platform signatures described
+below; Windows (from 0.3.0-rc.4) and Linux assets use checksum integrity and
+are not publisher code-signed:
 
 ```powershell
 $stage = Join-Path ([IO.Path]::GetTempPath()) ('ptk-install-' + [guid]::NewGuid())
@@ -417,11 +417,13 @@ post-v0.2.0 follow-up, not a currently working install path.
 
 Release authenticity differs by platform from v0.2.1 onward:
 
-- **Windows** assets are Authenticode-signed with Azure Trusted Signing and
-  countersigned by a timestamp authority, so signatures stay valid after the
-  signing certificate expires. Verified on a published asset:
-  `Get-AuthenticodeSignature` reports `Status=Valid`, issued by
-  `Microsoft ID Verified CS EOC CA 03`.
+- **Windows** assets are not publisher code-signed from 0.3.0-rc.4 onward.
+  The installer verifies each asset against the release's `SHA256SUMS`
+  before extraction, and every release's Windows build must pass a
+  Microsoft Defender scan before it ships. SmartScreen may warn about the
+  unsigned executables. v0.2.1 through 0.3.0-rc.3 were Authenticode-signed
+  with Azure Trusted Signing (timestamped, so those signatures remain valid);
+  that signing account no longer exists.
 - **macOS** assets are Developer ID-signed with hardened runtime and
   notarized with Apple. Verified on a published asset: `codesign --verify
   --strict` passes with the `Developer ID Application → Developer ID
@@ -432,7 +434,8 @@ Release authenticity differs by platform from v0.2.1 onward:
 - **Linux** assets are not publisher code-signed. The installer verifies each
   asset against the release's `SHA256SUMS` before extraction.
 
-`-FromRelease` preserves the Windows and macOS signatures and verifies every
+`-FromRelease` preserves the macOS signatures (and those of the signed
+Windows releases) and verifies every
 platform asset against `SHA256SUMS`; it extracts byte-for-byte and never
 rewrites a binary.
 **Binaries you build yourself are unsigned**, which is expected for the

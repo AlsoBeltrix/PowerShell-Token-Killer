@@ -32,8 +32,11 @@ function Assert-Omission {
 }
 
 Assert-Match `
-    -Pattern '(?m)^- \*\*Windows\*\* assets are Authenticode-signed with Azure Trusted Signing and$' `
-    -Failure 'README no longer states the Windows Authenticode signing contract.'
+    -Pattern '(?m)^- \*\*Windows\*\* assets are not publisher code-signed from 0\.3\.0-rc\.4 onward\.$' `
+    -Failure 'README must say current Windows release assets are not publisher code-signed.'
+Assert-Match `
+    -Pattern '(?ms)^- \*\*Windows\*\* assets are not publisher code-signed.*?`SHA256SUMS`.*?Microsoft Defender scan' `
+    -Failure 'README must bind Windows release integrity to SHA256SUMS and the Defender gate.'
 Assert-Match `
     -Pattern '(?m)^- \*\*macOS\*\* assets are Developer ID-signed with hardened runtime and$' `
     -Failure 'README no longer states the macOS Developer ID signing contract.'
@@ -47,7 +50,7 @@ Assert-Match `
     -Pattern '(?ms)^- \*\*Linux\*\* assets are not publisher code-signed\..*?`SHA256SUMS` before extraction\.' `
     -Failure 'README must bind Linux release integrity to SHA256SUMS.'
 Assert-Match `
-    -Pattern '(?ms)`-FromRelease` preserves the Windows and macOS signatures and verifies every\r?\nplatform asset against `SHA256SUMS`' `
+    -Pattern '(?ms)`-FromRelease` preserves the macOS signatures .*?verifies every\r?\nplatform asset against `SHA256SUMS`' `
     -Failure 'README must qualify signature preservation while covering every platform checksum.'
 
 Assert-Omission `
@@ -56,6 +59,9 @@ Assert-Omission `
 Assert-Omission `
     -Text 'Release binaries are signed' `
     -Failure 'Signing section still calls every platform binary signed.'
+Assert-Omission `
+    -Text 'Windows and macOS assets carry the platform signatures' `
+    -Failure 'Public install still says current Windows assets are signed.'
 Assert-Omission `
     -Text '-FromRelease` preserves those signatures' `
     -Failure 'Release install still implies every platform carries a signature.'

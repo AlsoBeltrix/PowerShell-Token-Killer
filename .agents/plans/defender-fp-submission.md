@@ -1,5 +1,10 @@
 # Runbook: submit the PtkMcpServer.dll Defender false positive
 
+**Owner report, 2026-10-23:** the submission "seem[s] to have" been allowed by
+Microsoft. No verdict text or submission ID is recorded yet; Step 5's rescan
+and closing issue #7 remain pending. Windows releases are unsigned again from
+0.3.0-rc.4, so the release Defender gate is what confirms each build.
+
 **Status:** Submitted — awaiting Microsoft verdict. The owner uploaded the
 detected `PtkMcpServer.dll` to the WDSI file-submission portal on 2026-07-20
 (submission ID not yet recorded; add it here when available). Do not repeat the

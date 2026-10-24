@@ -21,7 +21,11 @@ legs failed in Azure Trusted Signing with `403 (Forbidden)` from
 (account `roethlar-app-signing`, profile `public-trust`, app
 `github-signing`). No draft was created. Owner-side Azure check needed (role
 assignment, profile/identity-validation state, subscription); then rerun the
-failed legs with `gh run rerun 40050237185 --failed`.
+failed legs with `gh run rerun 40050237185 --failed`. Superseded the same
+day: the owner reports the Azure account no longer exists and chose unsigned
+Windows assets (decision in `.agents/decisions.md`); the Azure signing steps
+were removed, so rc.4 needs a fresh release run from the commit that removes
+them, not a rerun.
 
 **Installer prerequisite consent, 2026-10-23 (owner go):** `scripts/install.ps1`
 now asks before installing a missing rtk (previously fetched silently) and,

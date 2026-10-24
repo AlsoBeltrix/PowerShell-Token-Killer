@@ -34,6 +34,24 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-10-23): Windows release assets ship without a publisher signature
+
+**Status:** Active — the owner chose this ("1.") after the Azure Trusted
+Signing account behind `roethlar-app-signing` / `public-trust` ceased to exist
+(rc.4 run `40050237185`: `403 (Forbidden)` from the signing service).
+
+From 0.3.0-rc.4, Windows assets are not Authenticode-signed by PTK. Integrity
+rests on `SHA256SUMS` (verified by the installer before extraction), the
+Defender scan and payload-intact gate in `server/direct-product-proof.ps1`
+stays mandatory, and the downloaded-product proof still fails any file whose
+carried signature (Microsoft's runtime binaries) does not verify. The README
+states this plainly; SmartScreen may warn. The owner reports that Microsoft's
+WDSI review appeared to allow the previously flagged unsigned build (#7); that
+is the owner's report, not a recorded verdict. Rejected for now: waiting for a
+new provider (SignPath Foundation or a new Azure account) before releasing,
+and shipping rc.4 without Windows builds. Restoring signing is a later
+release's decision.
+
 ### ACTIVE (2026-10-23): PTK asks RTK through `rtk rewrite`, accepting exit 0 and 3
 
 **Status:** Active — the owner approved this approach on 2026-10-23 after

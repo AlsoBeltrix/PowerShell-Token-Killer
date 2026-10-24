@@ -51,12 +51,21 @@ try {
     Expand-ProofArchive (Join-Path $downloads "ptk-$Version-$Rid.$suffix") $layout
     Expand-ProofArchive $siemArchive $siem
     if ($IsWindows) {
-        $signed = @(Get-ChildItem $layout, $siem -Recurse -File | Where-Object Extension -in '.exe', '.dll')
-        foreach ($file in $signed) {
+        # Windows payloads are not publisher-signed since 2026-10-23 (no
+        # signing account); integrity rests on SHA256SUMS, checked before
+        # this proof. Files that do carry a signature (Microsoft's runtime
+        # binaries) must still verify, so a damaged or altered one fails.
+        $binaries = @(Get-ChildItem $layout, $siem -Recurse -File | Where-Object Extension -in '.exe', '.dll')
+        $valid = 0
+        foreach ($file in $binaries) {
             $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
-            if ($signature.Status -ne 'Valid') { throw "Invalid Authenticode signature: $($file.FullName): $($signature.Status)" }
+            switch ($signature.Status) {
+                'Valid' { $valid++ }
+                'NotSigned' { }
+                default { throw "Invalid Authenticode signature: $($file.FullName): $($signature.Status)" }
+            }
         }
-        Write-Host "Downloaded Authenticode signatures valid: $($signed.Count)"
+        Write-Host "Downloaded Windows binaries: $($binaries.Count); carried signatures valid: $valid; unsigned: $($binaries.Count - $valid)"
     }
     elseif ($IsMacOS) {
         $count = 0

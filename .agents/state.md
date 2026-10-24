@@ -30,7 +30,10 @@ candidate record is `.agents/release-candidate-0.3.0-rc.4.md`. **Published
 as a prerelease 2026-10-24** on the owner's go. Its public bootstrap is broken
 (installer smoke test not shipped; fixed `f24c3ce`, needs the next release),
 and package validation fixes landed in `06f9074`; details and channel status
-in the candidate record.
+in the candidate record. rc.4's release notes carry a known-issue note. **rc.5
+draft built and verified from `74aaeaf`** (`.agents/release-candidate-0.3.0-rc.5.md`);
+its publication awaits the owner because the auto-mode classifier refused the
+agent's publish call.
 
 **Installer prerequisite consent, 2026-10-23 (owner go):** `scripts/install.ps1`
 now asks before installing a missing rtk (previously fetched silently) and,

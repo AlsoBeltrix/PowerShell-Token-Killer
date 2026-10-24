@@ -133,7 +133,7 @@ jobs:
           Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery
           Repair-WinGetPackageManager -Force -Latest
           "validating with winget: $(winget --version)"
-          $manifest = Join-Path $PWD "packages/winget/manifests/r/roethlar/PowerShellTokenKiller/$env:PTK_RELEASE_VERSION"
+          $manifest = Join-Path $PWD "packages/winget/manifests/r/Roethlar/PowerShellTokenKiller/$env:PTK_RELEASE_VERSION"
           winget validate --manifest $manifest
           if ($LASTEXITCODE -ne 0) { throw 'winget manifest validation failed.' }
           winget settings --enable LocalManifestFiles

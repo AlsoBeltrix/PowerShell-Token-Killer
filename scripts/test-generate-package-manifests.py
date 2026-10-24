@@ -54,6 +54,16 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("InstallerSha256: " + "2" * 64, installer)
         self.assertIn("RelativeFilePath: bin\\ptk.exe", installer)
         self.assertRegex(installer, r"(?m)^ArchiveBinariesDependOnPath: true$")
+        # The owner's existing winget-pkgs publisher folder is `Roethlar`
+        # (Roethlar.Songr, Roethlar.Blit); path, file names, and identifier
+        # must use that exact case.
+        manifest_dirs = {p.parent.relative_to(self.output / "winget").as_posix()
+                         for p in (self.output / "winget").rglob("*.yaml")}
+        self.assertEqual(1, len(manifest_dirs))
+        self.assertTrue(next(iter(manifest_dirs)).startswith("manifests/r/Roethlar/PowerShellTokenKiller/"))
+        for path in (self.output / "winget").rglob("*.yaml"):
+            self.assertTrue(path.name.startswith("Roethlar.PowerShellTokenKiller."), path.name)
+            self.assertIn("PackageIdentifier: Roethlar.PowerShellTokenKiller\n", path.read_text())
         for kind, suffix in (("installer", ".installer.yaml"),
                              ("defaultLocale", ".locale.en-US.yaml"),
                              ("version", "PowerShellTokenKiller.yaml")):

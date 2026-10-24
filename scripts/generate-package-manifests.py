@@ -108,8 +108,8 @@ end
             "hash": {"url": f"{REPOSITORY}/releases/download/v$version/SHA256SUMS"}},
     }
     write("scoop/bucket/ptk.json", json.dumps(scoop, indent=4) + "\n")
-    identifier = "roethlar.PowerShellTokenKiller"
-    winget_path = f"winget/manifests/r/roethlar/PowerShellTokenKiller/{version}"
+    identifier = "Roethlar.PowerShellTokenKiller"
+    winget_path = f"winget/manifests/r/Roethlar/PowerShellTokenKiller/{version}"
     header = f"PackageIdentifier: {identifier}\nPackageVersion: {version}\n"
 
     # `winget validate` exits non-zero on "Schema header not found"

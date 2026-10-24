@@ -80,7 +80,11 @@ values belong in this repository or tool output.
   or copy a broader unrelated credential just to satisfy a new setup ask.
   `WINGET_TOKEN` is optional future unattended PR creation; automation can
   recognize the operator-created PR. The publisher segment is lowercase
-  `roethlar`: PTK's identifier is `roethlar.PowerShellTokenKiller`.
+  `roethlar` for the fork and PR head. Corrected 2026-10-24: the winget
+  *identifier* publisher is `Roethlar`, matching the owner's existing
+  winget-pkgs packages (`Roethlar.Songr`, `Roethlar.Blit`), so PTK's
+  identifier is `Roethlar.PowerShellTokenKiller`; the lowercase form put
+  rc.5's PR files under `manifests/r/Roethlar/` with a mismatched name.
 - Private vulnerability reporting remains disabled and these credentials
   have no canonical admin permission. Interpretation of the owner's steering:
   this is an update to an already-public project using its existing release

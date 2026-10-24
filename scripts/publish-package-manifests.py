@@ -31,8 +31,8 @@ def publish(channel, manifests, version, proof_url, work):
             return
         run("git", "clone", "--filter=blob:none", "--no-checkout", "--depth=1", f"https://github.com/{repository}.git", str(checkout))
         run("git", "fetch", "--depth=1", "https://github.com/microsoft/winget-pkgs.git", "master", cwd=checkout)
-        relative = f"manifests/r/roethlar/PowerShellTokenKiller/{version}"
-        run("git", "sparse-checkout", "set", "manifests/r/roethlar/PowerShellTokenKiller", cwd=checkout)
+        relative = f"manifests/r/Roethlar/PowerShellTokenKiller/{version}"
+        run("git", "sparse-checkout", "set", "manifests/r/Roethlar/PowerShellTokenKiller", cwd=checkout)
         run("git", "switch", "--create", branch, "FETCH_HEAD", cwd=checkout)
         if (checkout / relative).exists():
             print(f"winget already contains {relative}")
@@ -68,7 +68,7 @@ def publish(channel, manifests, version, proof_url, work):
             "Harness registration is explicit via `ptk init --agent codex`.\n\n"
             f"Validation: [native package installation and removal]({proof_url}).\n", encoding="utf-8")
         run("gh", "pr", "create", "--repo", "microsoft/winget-pkgs", "--head", "roethlar:" + branch,
-            "--title", f"New package: roethlar.PowerShellTokenKiller version {version}", "--body-file", str(body), cwd=checkout)
+            "--title", f"New package: Roethlar.PowerShellTokenKiller version {version}", "--body-file", str(body), cwd=checkout)
     else:
         run("git", "push", "origin", "HEAD", cwd=checkout)
         print(f"{channel}: published {version}")

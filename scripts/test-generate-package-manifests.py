@@ -47,6 +47,8 @@ class ManifestTests(unittest.TestCase):
         self.assertIn('sha256 "' + "3" * 64 + '"', formula)
         self.assertIn('PACKAGE-HOME', formula)
         self.assertIn('#{opt_libexec}', formula)
+        # `brew audit --strict` rejects a version the URLs already carry.
+        self.assertNotRegex(formula, r'(?m)^\s*version "')
         installer = next((self.output / "winget").rglob("*.installer.yaml")).read_text()
         self.assertIn("InstallerSha256: " + "1" * 64, installer)
         self.assertIn("InstallerSha256: " + "2" * 64, installer)

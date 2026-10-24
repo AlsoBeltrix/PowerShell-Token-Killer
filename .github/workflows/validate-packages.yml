@@ -124,10 +124,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-            Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery
-            Repair-WinGetPackageManager -AllUsers -Force -Latest
-          }
+          # Always the latest stable winget, as winget-pkgs validation uses:
+          # the image's preinstalled winget rejected the current 1.12.0
+          # schema header that winget-pkgs manifests carry (0.3.0-rc.5).
+          Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery
+          Repair-WinGetPackageManager -AllUsers -Force -Latest
+          winget --version
           $manifest = Join-Path $PWD "packages/winget/manifests/r/roethlar/PowerShellTokenKiller/$env:PTK_RELEASE_VERSION"
           winget validate --manifest $manifest
           if ($LASTEXITCODE -ne 0) { throw 'winget manifest validation failed.' }

@@ -39,7 +39,6 @@ def generate(metadata, output, allow_draft=False):
     formula = f'''class Ptk < Formula
   desc "Warm PowerShell MCP sessions with compact, recoverable output"
   homepage "{REPOSITORY}"
-  version "{version}"
   license "Apache-2.0"
 
   depends_on "rtk"

@@ -53,6 +53,7 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("InstallerSha256: " + "1" * 64, installer)
         self.assertIn("InstallerSha256: " + "2" * 64, installer)
         self.assertIn("RelativeFilePath: bin\\ptk.exe", installer)
+        self.assertRegex(installer, r"(?m)^ArchiveBinariesDependOnPath: true$")
         for kind, suffix in (("installer", ".installer.yaml"),
                              ("defaultLocale", ".locale.en-US.yaml"),
                              ("version", "PowerShellTokenKiller.yaml")):

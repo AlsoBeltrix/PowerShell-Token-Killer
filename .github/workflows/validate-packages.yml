@@ -141,13 +141,18 @@ jobs:
           winget install --manifest $manifest --accept-package-agreements --accept-source-agreements --disable-interactivity --scope user
           if ($LASTEXITCODE -ne 0) { throw 'winget installation failed.' }
           $env:PATH = [Environment]::GetEnvironmentVariable('PATH', 'User') + ';' + $env:PATH
-          $cli = Join-Path $env:LOCALAPPDATA 'Microsoft/WinGet/Links/ptk.exe'
+          # ArchiveBinariesDependOnPath puts the package's bin\ on PATH. A
+          # WinGet\Links symlink cannot start the .NET apphost: it looks for
+          # PtkMcpServer.dll beside the link (0.3.0-rc.5 validation).
+          $cli = (Get-Command ptk.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+          if ($cli -like '*\WinGet\Links\*') { throw "winget exposed ptk through a symlink: $cli" }
           & $cli version
+          if ($LASTEXITCODE -ne 0) { throw 'winget-installed ptk does not start.' }
           & $cli doctor
           if ($LASTEXITCODE -ne 0) { throw 'winget package cannot find its dependency.' }
-          $target = (Get-Item $cli).ResolveLinkTarget($true).FullName
-          & server/test-operator-cli.ps1 -LayoutRoot (Split-Path (Split-Path $target -Parent) -Parent)
-          & server/test-handshake.ps1 -ServerCommand (Join-Path (Split-Path $target -Parent) 'PtkMcpServer.exe')
+          $bin = Split-Path $cli -Parent
+          & server/test-operator-cli.ps1 -LayoutRoot (Split-Path $bin -Parent)
+          & server/test-handshake.ps1 -ServerCommand (Join-Path $bin 'PtkMcpServer.exe')
           winget uninstall --id roethlar.PowerShellTokenKiller --exact --disable-interactivity
           if ($LASTEXITCODE -ne 0) { throw 'winget removal failed.' }
 

@@ -123,6 +123,9 @@ NestedInstallerType: portable
 NestedInstallerFiles:
 - RelativeFilePath: bin\\ptk.exe
   PortableCommandAlias: ptk
+# bin\\ goes on PATH instead of a WinGet\\Links symlink: the .NET apphost
+# started through that symlink looks for PtkMcpServer.dll beside the link.
+ArchiveBinariesDependOnPath: true
 UpgradeBehavior: uninstallPrevious
 Commands:
 - ptk

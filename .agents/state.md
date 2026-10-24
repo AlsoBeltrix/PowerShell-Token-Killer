@@ -185,7 +185,12 @@ and uninstall proof.
   `NETWATCH-01` by a 16 s pause before the switch (fails in 34 s, CI took
   32 s); the coordinator now accepts optional internal retry delays the test
   shortens, and the same pause then passes. Product backoff is unchanged.
-  Confirm with the next CI run before treating head as green.
+  CI run `40046250981` at `4840f11`: all six jobs green after one rerun.
+  The first attempt failed `siem (windows-latest)` once in
+  `OperatorApiTests.The_chains_list_is_bounded_and_newest_first` (15 s
+  `HttpClient` timeout on the 200-boot ingest at line 304; ~0.7 s locally on
+  `NETWATCH-01`, 3/3); the rerun passed. First recorded occurrence, so
+  treat it as a runner stall and watch for recurrence, not as fixed.
 - **Canonical GitHub #30 closure:** `i30-1` is fixed on `origin/master` and exact-
   head CI run `33924847924` passed all six jobs. The live issue remains open;
   issue mutation is a separate outward-action gate.

@@ -507,7 +507,14 @@ public sealed class AuditDestinationS3Tests : IDisposable
             () => null,
             new AuditExportHealth(),
             destinationFactory: settings =>
-                controllers[settings.Endpoint!.Host].CreateDestination());
+                controllers[settings.Endpoint!.Host].CreateDestination(),
+            // The secondary fails until it is switched to Delivered. With the
+            // production 5 s doubling backoff, a slow runner reached a 20 s
+            // retry before the switch and outlasted the 15 s wait (CI run
+            // 34281077684, line 569). A short capped backoff keeps the
+            // recovery retry inside the budget however long the steps take.
+            initialRetryDelay: TimeSpan.FromMilliseconds(50),
+            maximumRetryDelay: TimeSpan.FromMilliseconds(250));
         await coordinator.StartAsync(CancellationToken.None);
         await WaitUntilAsync(() => primaryController.AcceptedRecords.Count == 1);
 

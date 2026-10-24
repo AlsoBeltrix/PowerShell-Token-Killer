@@ -43,6 +43,8 @@ internal sealed class AuditExportCoordinator : IHostedService, IAsyncDisposable
     private readonly Uri? _alertWebhook;
     private readonly AuditExportHealth _primaryHealth;
     private readonly Func<AuditExportSettings, IAuditDestination> _destinationFactory;
+    private readonly TimeSpan? _initialRetryDelay;
+    private readonly TimeSpan? _maximumRetryDelay;
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly Dictionary<Guid, ExportRuntime> _runtimes = [];
     private readonly Dictionary<Guid, ExportRuntime> _backfillRuntimes = [];
@@ -60,7 +62,9 @@ internal sealed class AuditExportCoordinator : IHostedService, IAsyncDisposable
         Func<AuditJournal?> liveJournalSource,
         AuditExportHealth primaryHealth,
         Uri? alertWebhook = null,
-        Func<AuditExportSettings, IAuditDestination>? destinationFactory = null)
+        Func<AuditExportSettings, IAuditDestination>? destinationFactory = null,
+        TimeSpan? initialRetryDelay = null,
+        TimeSpan? maximumRetryDelay = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(registry);
@@ -77,6 +81,10 @@ internal sealed class AuditExportCoordinator : IHostedService, IAsyncDisposable
         _alertWebhook = alertWebhook;
         _destinationFactory = destinationFactory ??
             (settings => new HttpAuditDestination(settings));
+        // Null keeps the service's production backoff; tests shorten it so a
+        // destination that recovers is retried inside their wait budget.
+        _initialRetryDelay = initialRetryDelay;
+        _maximumRetryDelay = maximumRetryDelay;
     }
 
     internal IReadOnlyList<AuditDestinationStatus> Statuses()
@@ -268,6 +276,8 @@ internal sealed class AuditExportCoordinator : IHostedService, IAsyncDisposable
                 _options.RootDirectory,
                 AuditExportCursorStore.DestinationFileName(definition.DestinationId)),
             health,
+            initialRetryDelay: _initialRetryDelay,
+            maximumRetryDelay: _maximumRetryDelay,
             liveJournalSource: _liveJournalSource,
             evidence: _evidence,
             gapStore: new AuditExportGapStore(
@@ -333,6 +343,8 @@ internal sealed class AuditExportCoordinator : IHostedService, IAsyncDisposable
                 _options.RootDirectory,
                 $"export-backfill-cursor-{suffix}.json"),
             health,
+            initialRetryDelay: _initialRetryDelay,
+            maximumRetryDelay: _maximumRetryDelay,
             liveJournalSource: _liveJournalSource,
             evidence: _evidence,
             gapStore: new AuditExportGapStore(

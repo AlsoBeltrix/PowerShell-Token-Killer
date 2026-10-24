@@ -761,6 +761,24 @@ _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._
   temporary directory was removed, and no persistent host configuration was
   changed.
 
+### Host state and server-suite baseline (2026-10-23)
+
+- Now Windows Server 2025 Standard 10.0.26100, PowerShell 7 at the
+  `michael` profile. System `C:\Program Files\dotnet` has only the 6.0.36
+  runtime (no SDK). The .NET SDK 10.0.402 was installed per user into
+  `~\.dotnet` on the owner's go (not on PATH; set `DOTNET_ROOT` and prepend it
+  per shell). No Visual Studio C++ tools, no rtk, no Python; `gh` installed
+  and logged in by the owner.
+- At `e50cf60` plus the S3 retry-delay test fix, `dotnet test` of
+  `PtkMcpServer.Tests` gave 1,382/1,392. The same ten fail at unchanged
+  `e50cf60`, so they are host results: seven server-launching tests
+  (`StdioChildStdinTests`, `AuditProgramStartupTests`) see the server close
+  stdout immediately, consistent with the missing rtk (exit 78), and three
+  `ScriptEvidenceStoreTests` anchor tests throw `ScriptEvidenceStorageException`
+  from `MarkAnchored` (not diagnosed).
+- The Pester module suite's `redirect hook and installer` block fails setup
+  here without an SDK on PATH (61 failures, same as baseline).
+
 ### Audited-harness Slice 1 checkout validation
 
 _Verified 2026-07-11 at `460c106` in a disposable copy under `F:\dev`; the

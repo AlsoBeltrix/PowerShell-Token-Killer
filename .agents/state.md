@@ -176,16 +176,16 @@ and uninstall proof.
 
 ## Blockers
 
-- **Current-head CI red, 2026-09-08:** run `34281077684` at `4439734e`
-  failed only `test (windows-latest)`. One server test,
-  `AuditDestinationS3Tests.Coordinator_applies_live_changes_and_keeps_partial_failure_independent`,
-  exhausted the fixed 15-second `WaitUntilAsync` budget; 1,391 of 1,392
-  passed and the other five jobs passed. No product code changed since green
-  run `34277812068` at `3ff494c5` — the later commits touched records,
-  workflows, Python guards, and a Windows proof launcher — so this reads as
-  the known fixed-watchdog timing class rather than a regression. Not
-  reproduced locally and no rerun attempted; diagnose before trusting the
-  head as green.
+- **Current-head CI red, 2026-09-08 — diagnosed and fixed 2026-10-23:** run
+  `34281077684` failed only `test (windows-latest)`, in
+  `AuditDestinationS3Tests.Coordinator_applies_live_changes_and_keeps_partial_failure_independent`
+  at line 569. Cause: the test inherited the production 5 s doubling retry
+  backoff; on a slow runner the failing secondary reached a 20 s retry before
+  it was switched to Delivered, outlasting the 15 s wait. Reproduced on
+  `NETWATCH-01` by a 16 s pause before the switch (fails in 34 s, CI took
+  32 s); the coordinator now accepts optional internal retry delays the test
+  shortens, and the same pause then passes. Product backoff is unchanged.
+  Confirm with the next CI run before treating head as green.
 - **Canonical GitHub #30 closure:** `i30-1` is fixed on `origin/master` and exact-
   head CI run `33924847924` passed all six jobs. The live issue remains open;
   issue mutation is a separate outward-action gate.

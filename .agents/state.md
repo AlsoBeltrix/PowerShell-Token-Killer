@@ -24,8 +24,10 @@ assignment, profile/identity-validation state, subscription); then rerun the
 failed legs with `gh run rerun 40050237185 --failed`. Superseded the same
 day: the owner reports the Azure account no longer exists and chose unsigned
 Windows assets (decision in `.agents/decisions.md`); the Azure signing steps
-were removed, so rc.4 needs a fresh release run from the commit that removes
-them, not a rerun.
+were removed. **rc.4 draft `422458581` is built from `836fb10` and verified
+on all five RIDs** (release `40052372861`, verification `40052902047`); the
+candidate record is `.agents/release-candidate-0.3.0-rc.4.md`. Nothing is
+published; publication needs a fresh owner go.
 
 **Installer prerequisite consent, 2026-10-23 (owner go):** `scripts/install.ps1`
 now asks before installing a missing rtk (previously fetched silently) and,

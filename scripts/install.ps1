@@ -695,7 +695,11 @@ function Test-PtkRtkAnswers {
     # rewrite (rtk 1.x answers 3 when no allow rule covers the command).
     try {
         $rewritten = & $Path rewrite 'git status --short' 2>$null
-        return $LASTEXITCODE -in 0, 3 -and -not [string]::IsNullOrWhiteSpace($rewritten)
+        $answered = $LASTEXITCODE -in 0, 3 -and -not [string]::IsNullOrWhiteSpace($rewritten)
+        # A passing answer of 3 is not a failure for anything that reads
+        # LASTEXITCODE after this probe.
+        $global:LASTEXITCODE = 0
+        return $answered
     }
     catch { return $false }
 }

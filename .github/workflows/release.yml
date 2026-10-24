@@ -117,6 +117,9 @@ jobs:
             throw "rtk rewrite did not answer on ${{ matrix.rid }} (exit $LASTEXITCODE)"
           }
           Write-Host "rtk rewrote to: $rewritten"
+          # The runner's pwsh wrapper exits with $LASTEXITCODE; a passing
+          # answer of 3 must not fail the step.
+          exit 0
 
       - name: Build layout
         shell: pwsh

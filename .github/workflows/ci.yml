@@ -68,6 +68,9 @@ jobs:
             throw "rtk rewrite did not answer (exit $LASTEXITCODE)"
           }
           Write-Host "rtk rewrote to: $rewritten"
+          # The runner's pwsh wrapper exits with $LASTEXITCODE; a passing
+          # answer of 3 must not fail the step.
+          exit 0
 
       # Pester 5 is preinstalled on all three runner images (slice-0 probe);
       # the install is a fallback for runner-image drift.

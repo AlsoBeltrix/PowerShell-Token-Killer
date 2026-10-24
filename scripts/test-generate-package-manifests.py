@@ -51,6 +51,14 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("InstallerSha256: " + "1" * 64, installer)
         self.assertIn("InstallerSha256: " + "2" * 64, installer)
         self.assertIn("RelativeFilePath: bin\\ptk.exe", installer)
+        for kind, suffix in (("installer", ".installer.yaml"),
+                             ("defaultLocale", ".locale.en-US.yaml"),
+                             ("version", "PowerShellTokenKiller.yaml")):
+            text = next(p for p in (self.output / "winget").rglob("*.yaml")
+                        if p.name.endswith(suffix)).read_text()
+            self.assertTrue(text.startswith(
+                "# yaml-language-server: $schema=https://aka.ms/winget-manifest."
+                f"{kind}.1.12.0.schema.json\n"), kind)
         pkgbuild = (self.output / "aur/PKGBUILD").read_text()
         self.assertIn("sha256sums_x86_64=('" + "4" * 64 + "')", pkgbuild)
         self.assertIn("sha256sums_aarch64=('" + "5" * 64 + "')", pkgbuild)

@@ -70,6 +70,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # tap-new commits the new tap; runners have no git identity, and
+          # the 0.3.0-rc.4 validation failed there with git exit 128.
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
           brew tap-new ptk-validation/local
           cp packages/homebrew/Formula/ptk.rb "$(brew --repository ptk-validation/local)/Formula/ptk.rb"
           brew style ptk-validation/local/ptk

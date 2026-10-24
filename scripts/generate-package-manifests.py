@@ -112,7 +112,14 @@ end
     identifier = "roethlar.PowerShellTokenKiller"
     winget_path = f"winget/manifests/r/roethlar/PowerShellTokenKiller/{version}"
     header = f"PackageIdentifier: {identifier}\nPackageVersion: {version}\n"
-    installer = header + '''InstallerType: zip
+
+    # `winget validate` exits non-zero on "Schema header not found"
+    # warnings, which failed package validation for 0.3.0-rc.4.
+    def schema(kind):
+        return ("# yaml-language-server: $schema="
+                f"https://aka.ms/winget-manifest.{kind}.1.12.0.schema.json\n\n")
+
+    installer = schema("installer") + header + '''InstallerType: zip
 NestedInstallerType: portable
 NestedInstallerFiles:
 - RelativeFilePath: bin\\ptk.exe
@@ -130,7 +137,7 @@ Installers:
         installer += f"- Architecture: {architecture}\n  InstallerUrl: {url}\n  InstallerSha256: {digest.upper()}\n"
     installer += "ManifestType: installer\nManifestVersion: 1.12.0\n"
     write(f"{winget_path}/{identifier}.installer.yaml", installer)
-    locale = header + f'''PackageLocale: en-US
+    locale = schema("defaultLocale") + header + f'''PackageLocale: en-US
 Publisher: PowerShell Token Killer contributors
 PublisherUrl: {REPOSITORY}
 PublisherSupportUrl: {REPOSITORY}/issues
@@ -153,7 +160,8 @@ ManifestType: defaultLocale
 ManifestVersion: 1.12.0
 '''
     write(f"{winget_path}/{identifier}.locale.en-US.yaml", locale)
-    write(f"{winget_path}/{identifier}.yaml", header + "DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.12.0\n")
+    write(f"{winget_path}/{identifier}.yaml", schema("version") + header +
+          "DefaultLocale: en-US\nManifestType: version\nManifestVersion: 1.12.0\n")
     pkgver = version.replace("-", "").replace("rc.", "rc")
     pkgbuild = f'''# Maintainer: PowerShell Token Killer contributors
 pkgname=ptk-bin

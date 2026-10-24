@@ -174,8 +174,9 @@ legs are not publisher code-signed since 2026-10-23 (owner decision in
 `.agents/decisions.md`): the Azure Trusted Signing account that signed
 v0.2.1–0.3.0-rc.3 no longer exists. Windows integrity rests on `SHA256SUMS`
 and the Defender gate in `direct-product-proof.ps1`; the downloaded-product
-proof still requires any signature a file carries to verify. The stale
-`AZURE_*` Actions secrets are unused. There is one public
+proof still requires any signature a file carries to verify. The five stale
+`AZURE_*` Actions secrets were deleted on the owner's word (2026-10-23).
+There is one public
 installer, `scripts/install.ps1` (`3109ec1`, 2026-08-04); the former root
 `install.ps1`/`install.sh` pair was consolidated into it and deleted.
 

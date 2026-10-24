@@ -199,19 +199,32 @@ wrong in both directions inside three days, so **run `git remote -v` in your
 own clone and trust that, not this file.** Only the durable facts belong
 here:
 
-- `origin` is the canonical GitHub remote:
+Remote roles (owner, 2026-10-24) — these are the durable facts; the remote
+*names* are per-clone:
+
+- **Canonical: GitHub `AlsoBeltrix/PowerShell-Token-Killer`**,
   `https://github.com/AlsoBeltrix/PowerShell-Token-Killer.git` (GitHub
   renamed the repo to capital-W `PowerShell-Token-Killer`; the URL was
-  updated to match on the owner's go, 2026-07-10). `master` tracks
-  `origin/master`.
-- Other remotes appear and disappear per clone and are not required by any
-  workflow. Names seen at least once: `github`
-  (`roethlar/Powershell-Token-Killer`, the owner's fork), `gitea`
-  (`http://q:3000/michael/Powershell-Token-Killer`, LAN forge), and
-  `personal` (`roethlar/-PowerShell-Token-Killer`).
+  updated to match on the owner's go, 2026-07-10). Releases, CI and `gh`
+  operations live here.
+- **Local: the LAN Gitea on magneto**,
+  `http://magneto:3001/michael/Powershell-Token-Killer.git`. Not canonical;
+  push it alongside the canonical remote so it stays in sync.
+- **Redundant backup: `roethlar/Powershell-Token-Killer`** (the owner's
+  fork). Not required by any workflow.
+- **Retired 2026-10-24 (owner: "q is gone, so anything that references it
+  is out of date"):** the former LAN forge
+  `http://q:3000/michael/Powershell-Token-Killer`. Not a remote, clone
+  source or push target.
+- As observed 2026-10-24 in the main clone: `origin` = the magneto Gitea
+  (`master` tracks `origin/master`) and `github` = canonical AlsoBeltrix.
+  Earlier clones had `origin` = AlsoBeltrix, `github` = the roethlar fork,
+  `gitea` = the q forge, and `personal` (`roethlar/-PowerShell-Token-Killer`)
+  — so check which URL a name points at before pushing.
 
-- **`gh` resolves its default repo to the `github` fork remote when that
-  remote exists** (observed 2026-08-07: a `gh workflow run` landed on
+- **`gh` can resolve its default repo to a non-canonical remote** — in a
+  clone where `github` points at the roethlar fork, it picks that
+  (observed 2026-08-07: a `gh workflow run` landed on
   `roethlar/…` instead of canonical and had to be canceled). Always pass
   `-R AlsoBeltrix/PowerShell-Token-Killer` explicitly for `gh` operations.
 

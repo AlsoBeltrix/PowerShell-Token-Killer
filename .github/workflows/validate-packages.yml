@@ -153,8 +153,11 @@ jobs:
           $bin = Split-Path $cli -Parent
           & server/test-operator-cli.ps1 -LayoutRoot (Split-Path $bin -Parent)
           & server/test-handshake.ps1 -ServerCommand (Join-Path $bin 'PtkMcpServer.exe')
-          winget uninstall --id roethlar.PowerShellTokenKiller --exact --disable-interactivity
+          # By manifest: a local-manifest install is not in the winget source
+          # yet, so `uninstall --id` reports no installed package.
+          winget uninstall --manifest $manifest --disable-interactivity
           if ($LASTEXITCODE -ne 0) { throw 'winget removal failed.' }
+          if (Test-Path -LiteralPath $cli) { throw "winget removal left $cli behind." }
 
   aur:
     needs: manifests

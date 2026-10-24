@@ -60,9 +60,22 @@ validation-only run against the published rc.5:
 Validation-only run `40063229735` at `b707272` passed all seven jobs
 (Homebrew ×3, Windows Scoop+winget ×2, AUR, manifests).
 
+Owner-dispatched publication run `40064123377` (from `master`): all seven
+validation jobs passed, then:
+
+- **Homebrew** `roethlar/homebrew-tap` `Formula/ptk.rb` → rc.5 assets.
+- **Scoop** `roethlar/scoop-bucket` `bucket/ptk.json` → version `0.3.0-rc.5`.
+- **AUR** `ptk-bin` created (`c36f8e6`, `pkgver = 0.3.0rc5`, depends on
+  `rtk`); the AUR RPC had not yet indexed the new package minutes later,
+  though the git repo and package page exist.
+- **winget** stopped as designed (no `WINGET_TOKEN`). The validated
+  manifests (artifact `package-manifests` of that run) match rc.5's
+  `SHA256SUMS` and pass local `winget validate`. `f0b92cd` removed the
+  "signed" claim from the PR body.
+
 ## Still required
 
-- `publish-packages.yml` dispatch from `master` for `0.3.0-rc.5` (refused
-  to the agent by the auto-mode classifier; owner runs or approves it).
-- winget PR via the operator `gh` session; confirm each channel's real
-  availability.
+- winget PR from the operator `gh` session (`roethlar`): the agent's
+  `publish-package-manifests.py winget` call was refused by the auto-mode
+  classifier. A submitted PR is pending until winget-pkgs merges it.
+- Confirm AUR RPC indexing.

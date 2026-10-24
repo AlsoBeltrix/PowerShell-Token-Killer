@@ -45,6 +45,26 @@ hang and is recorded as an intermittent macOS runner stall, not resolved.
   signatures, 16 PTK binaries are unsigned as decided; Defender scan
   completed and left the payload intact on both.
 
+## Publication (2026-10-24, owner go)
+
+Published as a prerelease at 2026-10-24T03:11:06Z with the notes in the
+release (not Latest; `v0.2.2` stays Latest). Tag `v0.3.0-rc.4` →
+`836fb10`.
+
+- **Public bootstrap is broken in this release.** Running the README
+  bootstrap against it in an isolated home on `NETWATCH-01` failed after
+  checksum verification: `install.ps1` looked for its smoke test at
+  `<checkout>/server/test-handshake.ps1`, which neither
+  `ptk-installer.zip` nor an installed payload contains. Every
+  `-FromRelease` install outside a checkout fails the same way. Fixed in
+  `f24c3ce`; a bundle built from it installed published rc.4 end to end
+  in an isolated home. Assets are immutable, so the fix ships in the next
+  release; package-manager installs do not use this installer.
+- Package publication `40057264358` (release event): AUR validation
+  passed; winget (schema-header warnings exit non-zero) and Homebrew (no
+  git identity for `brew tap-new`) failed, so no channel was published.
+  Fixed in `06f9074`; rerun from `master` by `workflow_dispatch`.
+
 ## Still required
 
 - Owner go for publication, then final factual release notes from

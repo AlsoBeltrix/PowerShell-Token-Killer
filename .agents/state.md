@@ -26,8 +26,11 @@ day: the owner reports the Azure account no longer exists and chose unsigned
 Windows assets (decision in `.agents/decisions.md`); the Azure signing steps
 were removed. **rc.4 draft `422458581` is built from `836fb10` and verified
 on all five RIDs** (release `40052372861`, verification `40052902047`); the
-candidate record is `.agents/release-candidate-0.3.0-rc.4.md`. Nothing is
-published; publication needs a fresh owner go.
+candidate record is `.agents/release-candidate-0.3.0-rc.4.md`. **Published
+as a prerelease 2026-10-24** on the owner's go. Its public bootstrap is broken
+(installer smoke test not shipped; fixed `f24c3ce`, needs the next release),
+and package validation fixes landed in `06f9074`; details and channel status
+in the candidate record.
 
 **Installer prerequisite consent, 2026-10-23 (owner go):** `scripts/install.ps1`
 now asks before installing a missing rtk (previously fetched silently) and,

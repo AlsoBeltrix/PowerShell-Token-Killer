@@ -916,6 +916,9 @@ function New-PtkLayout {
         'ptk_install_transaction.psm1', 'ptk_build_provenance.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }
+    # The installed installer validates the next -FromRelease payload with
+    # this smoke test before activating it (Resolve-PtkHandshakeScript).
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'server' 'test-handshake.ps1') -Destination $scripts.FullName
     # Apache-2.0 requires the licence to travel with the distribution, and a
     # user inspecting an installed payload should find it without the repo.
     foreach ($f in 'LICENSE', 'README.md') {
@@ -1055,13 +1058,28 @@ function Get-PtkRegistrationPaths {
     )
 }
 
+# The smoke test ships beside this installer in ptk-installer.zip and in an
+# installed payload's scripts/; a checkout keeps it under server/. Looking
+# only in the checkout location broke every -FromRelease install run from
+# the public bootstrap or from ~/.ptk/scripts (found publishing 0.3.0-rc.4).
+function Resolve-PtkHandshakeScript {
+    param(
+        [Parameter(Mandatory)][string]$InstallerRoot,
+        [Parameter(Mandatory)][string]$RepositoryRoot
+    )
+    $candidates = @(
+        (Join-Path $InstallerRoot 'test-handshake.ps1'),
+        (Join-Path $RepositoryRoot 'server' 'test-handshake.ps1'))
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    throw "Package smoke script is unavailable: $($candidates -join ' or ')"
+}
+
 function Invoke-PtkPackageSmoke {
     param([Parameter(Mandatory)][string]$BinaryPath)
 
-    $handshake = Join-Path $repoRoot 'server' 'test-handshake.ps1'
-    if (-not (Test-Path -LiteralPath $handshake -PathType Leaf)) {
-        throw "Package smoke script is unavailable: $handshake"
-    }
+    $handshake = Resolve-PtkHandshakeScript -InstallerRoot $PSScriptRoot -RepositoryRoot $repoRoot
     # Say what this is before it happens. The smoke test starts local worker
     # processes and opens named test sessions; unannounced, that reads like an
     # installer connecting to something.

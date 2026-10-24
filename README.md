@@ -354,8 +354,9 @@ finally {
 }
 ```
 
-The release-scoped `ptk-installer.zip` contains `scripts/install.ps1` and the
-two modules it imports. The bootstrap verifies it against the same
+The release-scoped `ptk-installer.zip` contains `scripts/install.ps1`, the
+two modules it imports, and the package smoke test (`test-handshake.ps1`) it
+runs before activating a payload. The bootstrap verifies it against the same
 release's `SHA256SUMS` before executing it. For a prerelease or pinned version,
 download from `releases/download/v<VERSION>/ptk-installer.zip` and pass
 `-FromRelease -Version <VERSION>`.

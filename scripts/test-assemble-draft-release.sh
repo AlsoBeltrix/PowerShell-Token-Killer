@@ -98,7 +98,7 @@ if bash "$repo_root/scripts/build-installer-bundle.sh" \
   echo 'installer-bundle builder replaced an existing bundle' >&2
   exit 1
 fi
-expected_entries=$'install.ps1\nptk_build_provenance.psm1\nptk_install_transaction.psm1'
+expected_entries=$'install.ps1\nptk_build_provenance.psm1\nptk_install_transaction.psm1\ntest-handshake.ps1'
 actual_entries=$(unzip -Z1 "$work/assets/ptk-installer.zip" | LC_ALL=C sort)
 [[ "$actual_entries" == "$expected_entries" ]] || {
   echo "installer bundle has unexpected contents: $actual_entries" >&2

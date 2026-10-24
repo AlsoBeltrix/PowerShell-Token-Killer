@@ -36,6 +36,9 @@ files=(
   "$source_root/scripts/install.ps1"
   "$source_root/scripts/ptk_install_transaction.psm1"
   "$source_root/scripts/ptk_build_provenance.psm1"
+  # install.ps1 smoke-tests the downloaded payload with this before
+  # activating it; without it every bootstrap install fails.
+  "$source_root/server/test-handshake.ps1"
 )
 for file in "${files[@]}"; do
   [[ -f "$file" ]] || { echo "installer input is missing: '$file'" >&2; exit 66; }
@@ -51,7 +54,7 @@ cleanup_partial() {
 trap cleanup_partial EXIT
 
 zip -j -q "$output_zip" "${files[@]}"
-expected_entries=$'install.ps1\nptk_build_provenance.psm1\nptk_install_transaction.psm1'
+expected_entries=$'install.ps1\nptk_build_provenance.psm1\nptk_install_transaction.psm1\ntest-handshake.ps1'
 actual_entries=$(unzip -Z1 "$output_zip" | LC_ALL=C sort)
 [[ "$actual_entries" == "$expected_entries" ]] || {
   echo "installer bundle contents are unexpected: $actual_entries" >&2

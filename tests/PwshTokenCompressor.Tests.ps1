@@ -1810,6 +1810,53 @@ Describe 'development package layout' {
         }
     }
 
+    # Publishing 0.3.0-rc.4 found every bootstrap install failing: the smoke
+    # test was looked up only at <checkout>/server/test-handshake.ps1, which
+    # neither ptk-installer.zip nor an installed payload has.
+    Context 'installer smoke script' {
+        BeforeAll {
+            $installerSource = Get-Content -LiteralPath (
+                Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1') -Raw
+            $start = $installerSource.IndexOf('function Resolve-PtkHandshakeScript')
+            $depth = 0
+            $seen = $false
+            $resolver = ''
+            for ($i = $start; $start -ge 0 -and $i -lt $installerSource.Length; $i++) {
+                if ($installerSource[$i] -eq '{') { $depth++; $seen = $true }
+                elseif ($installerSource[$i] -eq '}') {
+                    $depth--
+                    if ($seen -and $depth -eq 0) {
+                        $resolver = $installerSource.Substring($start, $i - $start + 1)
+                        break
+                    }
+                }
+            }
+        }
+
+        It 'finds the smoke test beside the installer when there is no checkout' {
+            $resolver | Should -Not -BeNullOrEmpty
+            $root = Join-Path $TestDrive ('smoke-' + [guid]::NewGuid().ToString('N'))
+            $bundle = New-Item -ItemType Directory -Path (Join-Path $root 'bundle')
+            $noCheckout = New-Item -ItemType Directory -Path (Join-Path $root 'parent')
+            $resolve = {
+                & ([scriptblock]::Create($resolver +
+                        "`nResolve-PtkHandshakeScript -InstallerRoot '$bundle' -RepositoryRoot '$noCheckout'"))
+            }
+            { & $resolve } | Should -Throw -ExpectedMessage '*Package smoke script is unavailable*'
+            Set-Content -LiteralPath (Join-Path $bundle 'test-handshake.ps1') -Value '#'
+            & $resolve | Should -Be (Join-Path $bundle 'test-handshake.ps1')
+        }
+
+        It 'ships the smoke test in the payload and resolves it for every smoke run' {
+            $installerSource | Should -Match (
+                "Copy-Item -LiteralPath \(Join-Path \`$repoRoot 'server' 'test-handshake\.ps1'\) " +
+                '-Destination \$scripts\.FullName')
+            $installerSource | Should -Match (
+                '\$handshake = Resolve-PtkHandshakeScript -InstallerRoot \$PSScriptRoot ' +
+                '-RepositoryRoot \$repoRoot')
+        }
+    }
+
     # Finding i42-1 (codex, HIGH): rollback repeats the activation bug. It
     # removes the target and then copies the snapshot back without checking
     # the removal took effect, and Copy-Item -Recurse onto a surviving

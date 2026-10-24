@@ -778,6 +778,13 @@ _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._
   from `MarkAnchored` (not diagnosed).
 - The Pester module suite's `redirect hook and installer` block fails setup
   here without an SDK on PATH (61 failures, same as baseline).
+- Remotes changed during the 2026-10-24 session (after `ef974a4` was pushed):
+  `github` → canonical `AlsoBeltrix/PowerShell-Token-Killer`, `origin` →
+  LAN forge `http://magneto:3001/michael/Powershell-Token-Killer.git`, whose
+  credential helper needs `tea` (not installed; pushes there fail). Canonical
+  pushes from this clone go to `github`. Python 3.14 installed by the owner
+  under `%LOCALAPPDATA%\Programs\Python\Python314` (not yet on shells' PATH);
+  `gh` is at `C:\Program Files\GitHub CLI\gh.exe`.
 
 ### Audited-harness Slice 1 checkout validation
 

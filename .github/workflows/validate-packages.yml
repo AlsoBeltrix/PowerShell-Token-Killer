@@ -127,9 +127,12 @@ jobs:
           # Always the latest stable winget, as winget-pkgs validation uses:
           # the image's preinstalled winget rejected the current 1.12.0
           # schema header that winget-pkgs manifests carry (0.3.0-rc.5).
+          # Current-user install: -AllUsers provisioning fails on the Server
+          # runner image with 0x80073CF1 (no package for the architecture).
+          if (Get-Command winget -ErrorAction SilentlyContinue) { "image winget: $(winget --version)" }
           Install-Module Microsoft.WinGet.Client -Force -Repository PSGallery
-          Repair-WinGetPackageManager -AllUsers -Force -Latest
-          winget --version
+          Repair-WinGetPackageManager -Force -Latest
+          "validating with winget: $(winget --version)"
           $manifest = Join-Path $PWD "packages/winget/manifests/r/roethlar/PowerShellTokenKiller/$env:PTK_RELEASE_VERSION"
           winget validate --manifest $manifest
           if ($LASTEXITCODE -ne 0) { throw 'winget manifest validation failed.' }

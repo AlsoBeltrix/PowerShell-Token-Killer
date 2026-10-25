@@ -785,6 +785,15 @@ _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._
   pushes from this clone go to `github`. Python 3.14 installed by the owner
   under `%LOCALAPPDATA%\Programs\Python\Python314` (not yet on shells' PATH);
   `gh` is at `C:\Program Files\GitHub CLI\gh.exe`.
+- 2026-10-24: the owner installed PTK `0.3.0-rc.5+74aaeaf` from the
+  checkout's installer at `6aece36` (`-FromRelease -InstallPrerequisites`)
+  into `C:\Users\michael\.ptk`. It placed rtk at
+  `C:\Users\michael\.local\bin\rtk.exe` (already on the user PATH), passed
+  both handshakes, registered Claude Code user-scope with the PreToolUse
+  hook and guidance block (the only harness detected), and wrote the HKCU
+  Add/Remove Programs entry. The hook is live in Claude sessions on this
+  host from then on; a session that started before the install has no ptk
+  tools, so shell calls there need `PTK_DIRECT`.
 
 ### Audited-harness Slice 1 checkout validation
 

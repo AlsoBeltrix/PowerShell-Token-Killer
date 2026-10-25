@@ -88,7 +88,31 @@ validation jobs passed, then:
 - **AUR** RPC indexed `ptk-bin` `0.3.0rc5-1` (maintainer `roethlar`),
   confirmed 2026-10-24.
 
+- winget-pkgs pipeline on `9343e1c`: label `Azure-Pipeline-Passed`;
+  installation validation completed on x64 and arm64 and concluded "needs
+  to go to manual review" (label `Validation-No-Executables`). Awaiting a
+  moderator.
+
+## Known issue: installer-fetched rtk is unreachable (found 2026-10-24)
+
+On `NETWATCH-01` with no rtk on PATH, `scripts/install.ps1 -FromRelease`
+(answering yes to the rtk question) failed the staged smoke with the
+server's exit-78 refusal. Two causes, both in shipped code:
+
+- The staged and installed smoke tests run before `Install-PtkRtk`, which
+  runs only in `RegistrationCutover`.
+- The server resolves rtk only from `PTK_RTK_PATH` or `PATH`
+  (`RtkDependency.ResolveExecutablePath`, `RunspaceHost`
+  `CaptureStartupRtkIdentity`); nothing sets either to the `~/.ptk/bin`
+  copy. Decision D's "registration points `PTK_RTK_PATH` at that copy" was
+  never implemented. Every proof so far had rtk on PATH.
+
+Package-manager installs are unaffected (rtk is a declared dependency).
+Workaround: install rtk first (`winget install rtk-ai.rtk`). The fix
+mechanism is an owner choice (pending).
+
 ## Still required
 
-- Watch the winget-pkgs pipeline on `9343e1c`. The PR is pending until
-  merged.
+- winget PR: pending moderator review and merge.
+- Fix the installer-fetched rtk defect above; it ships in the next
+  candidate.

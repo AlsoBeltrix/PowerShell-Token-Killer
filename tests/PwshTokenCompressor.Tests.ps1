@@ -1745,8 +1745,13 @@ Describe 'development package layout' {
             $body = $consent +
                 "`nfunction Read-Host { throw 'asked' }" +
                 "`nConfirm-PtkPrerequisiteInstall -Question 'q?'"
-            & ([scriptblock]::Create($body)) | Should -BeFalse
-            & ([scriptblock]::Create("`$InstallPrerequisites = `$true`n" + $body)) | Should -BeTrue
+            $declined = & ([scriptblock]::Create($body)) 3>&1
+            $declined | Where-Object { $_ -is [bool] } | Should -BeFalse
+            # The refusal must not read as if the user had been asked.
+            "$($declined | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })" |
+                Should -Match 'Not asked.*cannot take an answer.*q\?.*-InstallPrerequisites'
+            & ([scriptblock]::Create("`$InstallPrerequisites = `$true`n" + $body)) 3>&1 |
+                Should -BeExactly $true
         }
 
         It 'refuses a missing rtk when the user declines' {

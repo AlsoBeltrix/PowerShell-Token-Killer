@@ -537,7 +537,14 @@ function Confirm-PtkPrerequisiteInstall {
         '0' { $false }
         default { -not [Console]::IsInputRedirected }
     }
-    if (-not $interactive) { return $false }
+    if (-not $interactive) {
+        # Without this, the refusal that follows reads as if the user had
+        # been asked and declined (twice misread on NETWATCH-01, 2026-10-24).
+        Write-Warning ("Not asked, because this session cannot take an answer (its input is " +
+            "redirected): $Question Treating that as no. Run the installer in an interactive " +
+            'terminal, or pass -InstallPrerequisites to agree in advance.')
+        return $false
+    }
     $answer = Read-Host "$Question [Y/n]"
     [string]::IsNullOrWhiteSpace($answer) -or $answer.Trim() -match '^(?i:y|yes)$'
 }

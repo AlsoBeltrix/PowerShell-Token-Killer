@@ -395,13 +395,17 @@ The installer:
   upgrade and uninstall;
 - snapshots the prior installer-owned payload and restores it after any
   activation or registration failure;
-- **ensures RTK is present before registering.** RTK is required, so an rtk
-  already on `PATH` is used as-is, and otherwise, with your agreement, the
-  matching rtk is fetched from its own releases, verified against its
-  `checksums.txt`, and recorded so uninstall removes only the copy the
-  installer placed (later upgrades refetch it without asking again). The check probes
-  `rtk rewrite`, not `rtk --version`: the rewriter has to actually answer.
-  If it cannot, the install aborts rather than leaving a server that exits 78;
+- **ensures RTK is present before anything else.** RTK is required, so an
+  rtk already on `PATH` is used as-is, and otherwise, with your agreement, it
+  is installed where RTK's own installer puts it, `~/.local/bin` (or
+  `$RTK_INSTALL_DIR`): on Linux and macOS by running RTK's `install.sh`, and
+  on Windows, which RTK ships no installer for, by downloading its latest
+  release, verifying it against `checksums.txt`, and placing `rtk.exe` there.
+  If that directory is not on `PATH`, the install stops before registering
+  anything and tells you how to add it. Uninstall removes only that copy, and
+  only while it is unchanged. The check probes `rtk rewrite`, not
+  `rtk --version`: the rewriter has to actually answer. If it cannot, the
+  install aborts rather than leaving a server that exits 78;
 - runs the per-agent init, which wires up the detected harnesses — claude,
   codex, grok, agy, kimi — after one pacman-style consent prompt listing what
   was found (Enter wires all; `-Agent`/`-SkipAgent`/`-AllAgents` pre-answer,
@@ -552,12 +556,19 @@ finds none, it refuses to start and says so rather than coming up as a
 silently-unfiltered passthrough.
 
 PTK's release assets do not bundle RTK. The installer resolves it for you: an
-rtk already on `PATH` is used as-is and never touched, and otherwise the
-matching build is downloaded from RTK's own releases, verified against its
-`checksums.txt`, and placed in `~/.ptk/bin`. Uninstall removes only a copy the
-installer placed. Windows ARM64 has no upstream aarch64 rtk and runs the x64
-build under emulation; the installer probes `rtk rewrite` to confirm that
-actually works before completing.
+rtk already on `PATH` is used as-is and never touched, and otherwise RTK goes
+into `~/.local/bin`, where RTK's own installer puts it — on Linux and macOS
+RTK's `install.sh` runs, and on Windows the latest release is downloaded,
+verified against its `checksums.txt`, and placed there. That directory must be
+on `PATH`; if it is not, the installer says how to add it and stops.
+Uninstall removes only a copy the installer placed. Windows ARM64 has no
+upstream aarch64 rtk and runs the x64 build under emulation; the installer
+probes `rtk rewrite` to confirm that actually works before completing.
+
+RTK's default downloads, which both RTK's installer and PTK's fetch, include
+an engine licensed BUSL-1.1; the `rtk-oss` edition is the Apache-2.0-only
+build. To use it instead, install it yourself before running PTK's installer
+(for example `curl -fsSL …/install.sh | RTK_EDITION=oss sh`).
 
 Routing is RTK's decision, not PTK's. PTK submits the exact submitted text to
 `rtk rewrite`, the entry point RTK documents for integrations; when RTK returns

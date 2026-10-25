@@ -1705,8 +1705,10 @@ Describe 'development package layout' {
                 Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1') -Raw
             $extractFunction = {
                 param($text, $name)
-                $start = $text.IndexOf("function $name")
-                if ($start -lt 0) { return '' }
+                # Whole name only: Install-PtkRtk must not find Install-PtkRtkRelease.
+                $match = [regex]::Match($text, "function $([regex]::Escape($name))\b")
+                if (-not $match.Success) { return '' }
+                $start = $match.Index
                 $depth = 0
                 $seen = $false
                 for ($i = $start; $i -lt $text.Length; $i++) {
@@ -1747,23 +1749,113 @@ Describe 'development package layout' {
             & ([scriptblock]::Create("`$InstallPrerequisites = `$true`n" + $body)) | Should -BeTrue
         }
 
-        It 'refuses a missing rtk when the user declines, and does not re-ask after an agreed install' {
+        It 'refuses a missing rtk when the user declines' {
             $body = & $extractFunction $installerSource 'Assert-PtkRtkConsent'
             $body | Should -Not -BeNullOrEmpty
-            $consentHome = Join-Path $TestDrive ('rtk-consent-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory -Path $consentHome | Out-Null
             $probe = {
                 param($agree)
                 & ([scriptblock]::Create(
-                        "`$ptkHome = '$consentHome'; `$rtkMarkerName = '.ptk-installed-rtk'`n" + $body +
+                        "`$rtkInstallDir = 'rtk-dir'`n" + $body +
                         "`nfunction Find-PtkRtk { `$null }" +
                         "`nfunction Confirm-PtkPrerequisiteInstall { `$$agree }" +
                         "`nAssert-PtkRtkConsent"))
             }
             { & $probe $false } | Should -Throw -ExpectedMessage '*-InstallPrerequisites*'
             { & $probe $true } | Should -Not -Throw
-            Set-Content -LiteralPath (Join-Path $consentHome '.ptk-installed-rtk') -Value 'x'
-            { & $probe $false } | Should -Not -Throw
+        }
+
+        # Found 2026-10-24 on NETWATCH-01 with no rtk on PATH: the installer
+        # put rtk in ~/.ptk/bin, which the server never searches, and only
+        # after the smoke tests had already started a server without it.
+        It 'installs rtk where PATH can reach it, records it, and stops with advice when it cannot' {
+            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice'
+            $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
+            $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
+            $probe = {
+                param($reachable)
+                $caseHome = Join-Path $TestDrive ('rtk-place-' + [guid]::NewGuid().ToString('N'))
+                $placed = Join-Path $caseHome 'local-bin' 'rtk'
+                $result = & ([scriptblock]::Create(
+                        "`$ptkHome = '$caseHome/.ptk'; `$rtkMarkerName = '.ptk-installed-rtk'; " +
+                        "`$rtkInstallDir = '$caseHome/local-bin'; `$script:finds = 0`n" +
+                        ($bodies -join "`n") +
+                        "`nfunction Find-PtkRtk { `$script:finds++; " +
+                        "if (`$script:finds -gt 1 -and `$$reachable) { '$placed' } }" +
+                        "`nfunction Install-PtkRtkRelease { Install-Fake }" +
+                        "`nfunction Install-PtkRtkWithScript { Install-Fake }" +
+                        "`nfunction Install-Fake { New-Item -ItemType Directory -Force -Path (Split-Path '$placed') | Out-Null; " +
+                        "Set-Content -LiteralPath '$placed' -Value 'rtk'; '$placed' }" +
+                        "`nfunction Test-PtkRtkAnswers { `$true }" +
+                        "`nfunction Update-PtkProcessPath { }" +
+                        "`ntry { Install-PtkRtk -TargetRid 'linux-x64' 6>`$null; 'ok' } catch { `$_.Exception.Message }"))
+                [pscustomobject]@{
+                    Result = $result
+                    Marker = Get-Content -LiteralPath (Join-Path $caseHome '.ptk' '.ptk-installed-rtk') -Raw
+                    Placed = $placed
+                }
+            }
+            $ok = & $probe $true
+            $ok.Result | Should -Be 'ok'
+            $path, $hash = $ok.Marker -split "`n"
+            $path | Should -Be $ok.Placed
+            $hash | Should -Be (Get-FileHash -LiteralPath $ok.Placed -Algorithm SHA256).Hash.ToLowerInvariant()
+
+            $unreachable = & $probe $false
+            $unreachable.Result | Should -Match 'not on PATH'
+            $unreachable.Result | Should -Match 're-run this installer'
+            ($unreachable.Marker -split "`n")[0] | Should -Be $unreachable.Placed
+        }
+
+        It 'gives the PATH fix for the platform' {
+            $body = & $extractFunction $installerSource 'Get-PtkRtkPathAdvice'
+            $advise = {
+                param($onWindows)
+                & ([scriptblock]::Create($body +
+                        "`nGet-PtkRtkPathAdvice -Directory '/home/u/.local/bin' -OnWindows `$$onWindows"))
+            }
+            & $advise $false | Should -Match ([regex]::Escape('export PATH="/home/u/.local/bin:$PATH"'))
+            & $advise $true | Should -Match ([regex]::Escape("SetEnvironmentVariable('PATH', '/home/u/.local/bin;'"))
+        }
+
+        It 'takes the checksum for exactly the requested rtk asset' {
+            $body = & $extractFunction $installerSource 'Get-PtkRtkExpectedHash'
+            $lines = @(
+                (('a' * 64) + '  rtk-oss-x86_64-pc-windows-msvc.zip'),
+                (('b' * 64) + '  rtk-x86_64-pc-windows-msvc.zip'),
+                (('c' * 64) + '  rtk-x86_64-pc-windows-msvc.zip.sig'))
+            . ([scriptblock]::Create($body))
+            Get-PtkRtkExpectedHash -ChecksumLines $lines -Asset 'rtk-x86_64-pc-windows-msvc.zip' |
+                Should -Be ('b' * 64)
+            { Get-PtkRtkExpectedHash -ChecksumLines @('x  other.zip') -Asset 'rtk.zip' } |
+                Should -Throw -ExpectedMessage '*no entry for rtk.zip*'
+        }
+
+        It 'uninstalls only the rtk copy it placed, unless the user has replaced it' {
+            $body = & $extractFunction $installerSource 'Remove-PtkInstalledRtk'
+            $probe = {
+                param([string]$recordedHash, [string]$content)
+                $caseHome = Join-Path $TestDrive ('rtk-remove-' + [guid]::NewGuid().ToString('N'))
+                New-Item -ItemType Directory -Path $caseHome | Out-Null
+                $copy = Join-Path $caseHome 'rtk'
+                Set-Content -LiteralPath $copy -Value $content -NoNewline
+                $marker = if ($recordedHash) { "$copy`n$recordedHash" } else { $copy }
+                Set-Content -LiteralPath (Join-Path $caseHome '.ptk-installed-rtk') -Value $marker -NoNewline
+                & ([scriptblock]::Create(
+                        "`$ptkHome = '$caseHome'; `$rtkMarkerName = '.ptk-installed-rtk'`n" + $body +
+                        "`nRemove-PtkInstalledRtk 6>`$null"))
+                [pscustomobject]@{
+                    CopyKept = Test-Path -LiteralPath $copy
+                    MarkerKept = Test-Path -LiteralPath (Join-Path $caseHome '.ptk-installed-rtk')
+                }
+            }
+            $placedHash = [Convert]::ToHexString(
+                [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes('placed'))).ToLowerInvariant()
+            $same = & $probe $placedHash 'placed'
+            $same.CopyKept | Should -BeFalse
+            $same.MarkerKept | Should -BeFalse
+            (& $probe $placedHash 'the user''s own rtk').CopyKept | Should -BeTrue
+            # Markers before 2026-10-24 carry no hash and name a copy in ~/.ptk/bin.
+            (& $probe '' 'legacy').CopyKept | Should -BeFalse
         }
 
         It 'refuses a missing toolchain with the install command and the release fallback' {
@@ -1801,12 +1893,16 @@ Describe 'development package layout' {
         # Observed 2026-10-23 on a host without VS C++ tools: the installer
         # asked about rtk, then refused the build anyway. Checks that need no
         # answer come first; every question still precedes staging.
-        It 'refuses a doomed build before asking anything, and asks before staging' {
+        # rtk is installed before staging too: the smoke tests start the
+        # server, which refuses to start without it (found 2026-10-24).
+        It 'refuses a doomed build before asking anything, and asks and installs rtk before staging' {
             $installerSource | Should -Match (
                 'if \(-not \$FromRelease\) \{ Assert-PtkNativeToolchain -TargetRid \$targetRid \}' +
                 '\s*\r?\n\s*Assert-PtkRtkConsent' +
                 '\s*\r?\n\s*if \(-not \$FromRelease\) \{ Assert-PtkDotnetSdk \}' +
+                '\s*\r?\n\s*Install-PtkRtk -TargetRid \$targetRid' +
                 '\s*\r?\n\s*\$staging = Join-Path')
+            [regex]::Matches($installerSource, 'Install-PtkRtk -TargetRid').Count | Should -Be 1
         }
     }
 

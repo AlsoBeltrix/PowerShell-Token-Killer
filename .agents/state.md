@@ -40,9 +40,12 @@ now asks before installing a missing rtk (previously fetched silently) and,
 for source installs, checks the NativeAOT toolchain (refuses with the install
 command; it needs elevation) and offers a per-user .NET SDK install into
 `~/.dotnet`. `-InstallPrerequisites` agrees in advance; a non-interactive
-session without it refuses. An existing `.ptk-installed-rtk` marker counts as
-prior agreement. Pester guards in the `prerequisite consent` context. Not yet
-exercised: a real accepted rtk download or a real `dotnet-install` run (the
+session without it refuses. Pester guards in the `prerequisite consent`
+context. Since 2026-10-24 rtk installs into `~/.local/bin` before staging
+(decision in `.agents/decisions.md`; the earlier `~/.ptk/bin` copy was never
+reachable by the server), proven with a real accepted download on Windows;
+the Linux/macOS `install.sh` route is unexercised. Not yet
+exercised: a real `dotnet-install` run (the
 `NETWATCH-01` Windows host has no SDK or VS C++ tools; the module suite's
 `redirect hook and installer` block fails setup there, same as baseline).
 

@@ -108,11 +108,19 @@ server's exit-78 refusal. Two causes, both in shipped code:
   never implemented. Every proof so far had rtk on PATH.
 
 Package-manager installs are unaffected (rtk is a declared dependency).
-Workaround: install rtk first (`winget install rtk-ai.rtk`). The fix
-mechanism is an owner choice (pending).
+Workaround for rc.5: install rtk first (`winget install rtk-ai.rtk`).
+
+Fixed on `master` per the owner's direction (`.agents/decisions.md`, "The
+installer puts rtk where rtk's own installer does"): rtk goes into
+`~/.local/bin` before staging. Proven on `NETWATCH-01` by the checkout
+installer with `-FromRelease -InstallPrerequisites` in throwaway homes with
+no rtk anywhere: with that home's `.local\bin` off PATH it placed and
+recorded `rtk.exe` (hash `4f7ad08a…`) and stopped before staging with the
+PATH advice; with it on PATH both handshakes passed and rc.5 installed;
+`-Uninstall` then removed that `rtk.exe` and the marker. The Linux/macOS
+`install.sh` route has not been exercised.
 
 ## Still required
 
 - winget PR: pending moderator review and merge.
-- Fix the installer-fetched rtk defect above; it ships in the next
-  candidate.
+- Ship the installer rtk fix in the next candidate (a separate owner go).

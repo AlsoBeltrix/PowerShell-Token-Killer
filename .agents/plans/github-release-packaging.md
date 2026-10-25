@@ -194,6 +194,14 @@ surface. Do not invent a second build-number system.
 
 ## Decision D — how RTK reaches the user (RULED: fetch-on-install)
 
+> **Amended 2026-10-24** (`.agents/decisions.md`, "The installer puts rtk
+> where rtk's own installer does"): rtk now goes into `~/.local/bin` (rtk's
+> `install.sh` on Linux/macOS; the verified release zip on Windows), before
+> staging, and the server finds it on PATH. Registration does not set
+> `PTK_RTK_PATH`; that clause below was never implemented. The probe is
+> `rtk rewrite`, not `hook check`. rtk's default downloads now include a
+> BUSL-1.1 engine, so the Apache-2.0 note below covers only `rtk-oss-*`.
+
 **Ruled 2026-08-04 (owner, a).** The installer detects rtk; when absent it
 downloads the RID's asset from `rtk-ai/rtk` releases, verifies it against
 that release's `checksums.txt`, and lays it into `~/.ptk/bin`. PTK's

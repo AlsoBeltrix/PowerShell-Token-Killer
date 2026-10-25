@@ -34,6 +34,39 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-10-24): The installer puts rtk where rtk's own installer does
+
+**Status:** Active — owner direction, 2026-10-24: "rtk should go into
+.local/bin", "it should keep rtk's installer's behaviour", "RTK should install
+itself", and for Windows, "we download the release and install it in
+~/.local/bin". Amends Decision D in
+`.agents/plans/github-release-packaging.md` (fetch-on-install stands; the
+destination and mechanism change).
+
+When no working rtk is on PATH and the user agrees, `scripts/install.ps1`:
+
+- on Linux and macOS runs rtk's own `install.sh` (fetched from rtk-ai/rtk
+  `master`), which installs `rtk` into `$RTK_INSTALL_DIR`, default
+  `~/.local/bin`, and leaves PATH alone;
+- on Windows, where rtk ships no installer and its docs give winget or a
+  manual zip into a PATH directory (example `C:\Users\<you>\.local\bin`),
+  downloads the latest `rtk-x86_64-pc-windows-msvc.zip`, verifies it against
+  `checksums.txt` (exact asset name), and places `rtk.exe` in the same
+  directory. Rejected: winget, which installs under winget's own package
+  tree instead of `~/.local/bin`.
+
+It does this before staging, because the smoke tests start the server and the
+server finds rtk only through `PTK_RTK_PATH` or `PATH`. If the installed rtk
+is not then on PATH, the install stops before registering anything and prints
+the PATH fix. The marker records path and SHA-256; uninstall removes the copy
+only while it still has that hash. The default rtk edition is fetched (its
+downloads now include a BUSL-1.1 engine; `rtk-oss-*` is the Apache-2.0-only
+build), as rtk's own installer does.
+
+Why: the previous destination, `~/.ptk/bin`, is on neither path the server
+searches, so an installer-fetched rtk could never be found (found on
+`NETWATCH-01`, 2026-10-24; see `.agents/release-candidate-0.3.0-rc.5.md`).
+
 ### ACTIVE (2026-10-23): Windows release assets ship without a publisher signature
 
 **Status:** Active — the owner chose this ("1.") after the Azure Trusted

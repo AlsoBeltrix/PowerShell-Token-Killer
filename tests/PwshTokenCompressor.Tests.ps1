@@ -302,9 +302,17 @@ Describe 'redirect hook and installer' {
         $decision.permissionDecisionReason | Should -Match 'PTK_DIRECT'
         # D3 dialect line (shell-dialect slice 4): the deny teaches the
         # dialect at the source, platform-neutrally - bash -lc is advised
-        # only "where bash exists", never unconditionally.
-        $decision.permissionDecisionReason | Should -Match 'PowerShell 7, not bash'
-        $decision.permissionDecisionReason | Should -Match "bash -lc '\.\.\.' where bash exists"
+        # only "where bash exists", never unconditionally. Since 2026-10-26
+        # the deny leads with native PowerShell and demotes the wrap to the
+        # here-string form, naming the trap: a quoted '...' argument is a
+        # PowerShell string that splits at the first embedded apostrophe, and
+        # "this same command" invited verbatim bash resends.
+        $decision.permissionDecisionReason | Should -Match 'this command written as PowerShell'
+        $decision.permissionDecisionReason | Should -Not -Match 'this same command'
+        $decision.permissionDecisionReason | Should -Match 'PowerShell 7, not bash: write PowerShell'
+        $decision.permissionDecisionReason | Should -Not -Match "bash -lc '\.\.\.'"
+        $decision.permissionDecisionReason | Should -Match ([regex]::Escape("bash -lc @'...'@ where bash exists"))
+        $decision.permissionDecisionReason | Should -Match 'first embedded apostrophe'
     }
 
     It 'appends down-server guidance when no ptk server process is running' {
@@ -671,9 +679,11 @@ Describe 'redirect hook and installer' {
             # D3 dialect line (shell-dialect slice 4). sd4-2: pin the FULL
             # qualified phrase, mirroring the hook-deny guard - dropping the
             # concrete wrapper while keeping the surrounding words must fail.
-            $text | Should -Match 'PowerShell 7, not bash'
+            $text | Should -Match 'PowerShell 7, not bash: write PowerShell'
             $text | Should -Match 'translate bash-only'
-            $text | Should -Match ([regex]::Escape("bash -lc '...' where bash exists"))
+            $text | Should -Not -Match ([regex]::Escape("bash -lc '...'"))
+            $text | Should -Match ([regex]::Escape("bash -lc @'...'@ where bash exists"))
+            $text | Should -Match 'first embedded apostrophe'
 
             pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Uninstall | Out-Null
             $text = Get-Content -LiteralPath $script:nudgeFile -Raw

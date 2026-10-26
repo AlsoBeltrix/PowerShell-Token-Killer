@@ -139,8 +139,11 @@ Routing rules:
   the exact-original fallback once; PTK never asks the model to reconstruct
   the command and never retries after start.
 - Bash is not inferred. PTK does not detect, refuse, validate, or delegate a
-  dialect. A user who needs bash invokes it explicitly as an ordinary native
-  command (`bash -lc '...'`), and rtk sees that like any other command. The
+  dialect. A script that is itself bash runs explicitly as an ordinary native
+  command, from a file or as a multi-line here-string argument
+  (`bash -lc @'...'@`; a quoted `'...'` argument is a PowerShell string and
+  splits at the first embedded apostrophe), and rtk sees that like any other
+  command. The
   deprecated `raw=true` flag is inert compatibility telemetry and does not
   affect interpreter, routing, process choice, capture, or shaping.
 - PTK emits no post-success command advice. A mixed native/PowerShell pipeline

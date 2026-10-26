@@ -144,7 +144,7 @@ public sealed class OutputShapingTests : IDisposable
         Assert.Contains("reserved for future use", result, StringComparison.Ordinal);
         Assert.Contains("[ptk hint]", result, StringComparison.Ordinal);
         Assert.Contains("Write-Error", result, StringComparison.Ordinal);
-        Assert.Contains("bash -lc", result, StringComparison.Ordinal);
+        Assert.Contains("bash -lc @'", result, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -5,6 +5,35 @@ short and update it when important repo facts change.
 
 ## Now
 
+**bash-wrap guidance repair and worktree cleanup, 2026-10-26 (owner go):** a
+magneto session showed an agent wrapping every command as `bash -lc '...'`
+through `ptk_invoke`, then losing a Python heredoc to the quoting: PowerShell
+does not join adjacent quoted tokens in argument mode, so the POSIX `'"'"'`
+idiom hands bash a truncated script (reproduced in plain `pwsh`: bash reports
+`syntax error near unexpected token 'newline'`, PowerShell reports nothing).
+ptk's own text caused the wrapping: the hook deny said "set to this same
+command", and the hook deny, the `ptk_invoke` description, the installed nudge
+block and the `1>&2` hint all advertised the single-quoted wrap. All four now
+lead with native PowerShell (git, grep, sed, python are ordinary commands;
+translate bash-only syntax), reserve bash for a script that is itself bash, and
+name the multi-line here-string `bash -lc @'...'@` with the apostrophe trap;
+`server/README.md`, `docs/known-limitations.md`, `docs/testplan.md` and the
+frozen `server/Contracts/ResilienceR0/public-tool-contract.json` follow. Pinned
+tests updated (Pester hook/nudge pins, `OutputShapingTests`; the schema
+conformance test reads the contract). Installed machines get the new hook and
+nudge text only after a dev-install re-run; magneto still carries the old text.
+Worktrees: three prunable entries pruned; the clean, merged `cr10-verification`
+checkout and the clean `mcp-resilience-r1` checkout removed (branch
+`feature/mcp-resilience-r1` kept as the salvage plan's parts bin, pushed to
+origin); merged branch `worktree-cr10-verification` deleted. Three July
+branches (`feat/closed-prefix-reader`, `feat/config-retry-capability`,
+`fix/locked-prefix-reconcile`; one unmerged commit each, no upstream) are
+untouched. Verification: Pester 130 passed, 0 failed, 3 platform-skipped (hook published with the host override); server suite 1,395/1,396 with the only failure the contract digest check, then the 43 schema conformance tests passed after the digest refresh; `git diff --check` clean. Not run: SIEM suite and build-identity proof (no SIEM or build changes). Open: the server restore
+reports NU1902/NU1903 for `System.Security.Cryptography.Pkcs` 10.0.10 and
+`System.Security.Cryptography.Xml` 10.0.10, a failed production dependency
+check per `.agents/repo-guidance.md`; next action is a version bump plus the
+battery. Host note for the Pester hook publish: `.agents/machines.md`.
+
 **rtk 1.0 contract repair and rc.4, 2026-10-23 (owner go):** the first
 `0.3.0-rc.4` release run `40047540862` (branch `release/0.3.0-rc.4` at
 `deee603`) failed on all five legs: rtk 1.0.1 rejects

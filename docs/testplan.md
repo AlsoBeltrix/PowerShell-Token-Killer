@@ -166,7 +166,7 @@ loudly, or silently did something other than what the syntax means.
 
 7.8 `rm -rf` on a temp directory you created
 
-7.9 `bash -lc '...'` wrapping a bash script whole
+7.9 `bash -lc @'...'@` wrapping a bash script whole, with an apostrophe in the body
 
 7.10 A path with a space, unquoted and quoted
 

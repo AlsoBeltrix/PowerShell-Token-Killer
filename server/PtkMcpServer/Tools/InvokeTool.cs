@@ -13,8 +13,13 @@ public static class InvokeTool
     [McpServerTool(Name = "ptk_invoke")]
     [Description(
         "Run PowerShell 7 work once in one isolated warm session. The dialect is " +
-        "PowerShell, not bash: translate bash-only syntax, or invoke bash explicitly " +
-        "as an ordinary native command (bash -lc '...') when you genuinely need it. " +
+        "PowerShell, not bash: write PowerShell directly. git, grep, sed, python and " +
+        "other native tools run as ordinary commands; translate bash-only syntax " +
+        "(heredocs, export, [ ] tests) instead of wrapping the script in bash -lc. " +
+        "Reserve bash for a script that is itself bash, run from a file or passed as " +
+        "a multi-line here-string, bash -lc @'...'@ (@' ends its line, '@ opens one): " +
+        "a quoted '...' argument is a PowerShell string and breaks at the first " +
+        "embedded apostrophe. " +
         "Everything executes in that session's persistent runspace; rtk rewrites the " +
         "native commands it recognizes so their output is filtered at the source. " +
         "Output is token-compressed while " +

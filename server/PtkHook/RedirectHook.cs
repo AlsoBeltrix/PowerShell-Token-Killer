@@ -29,11 +29,15 @@ public static class RedirectHook
             " The warm runspace keeps its current directory across calls; if needed, prefix: Set-Location '" +
             cwd.Replace("'", "''") + "'; ";
         var reason =
-            "Shell commands run through ptk: call the ptk_invoke MCP tool with \"script\" set to this same command." +
+            "Shell commands run through ptk: call the ptk_invoke MCP tool with \"script\" set to this command written as PowerShell." +
             cwdAdvice +
             "It runs in a persistent warm PowerShell runspace (state and imported modules survive across calls) " +
-            "and output comes back token-compressed. The dialect is PowerShell 7, not bash: translate bash-only " +
-            "syntax, or wrap a bash script whole as bash -lc '...' where bash exists. " +
+            "and output comes back token-compressed. The dialect is PowerShell 7, not bash: write PowerShell directly. " +
+            "git, grep, sed, python and other native tools run as ordinary commands; translate bash-only syntax " +
+            "(heredocs, export, [ ] tests) instead of wrapping the command in bash -lc. Reserve bash for a script " +
+            "that is itself bash, run from a file or passed as a multi-line here-string, bash -lc @'...'@ where bash exists " +
+            "(@' ends its line, '@ opens one): a quoted '...' argument is a PowerShell string and breaks at the first " +
+            "embedded apostrophe. " +
             "Only if the command genuinely needs this harness shell " +
             "(interactive/TTY, or ptk is unavailable), re-run it here with PTK_DIRECT in a comment." +
             (serverIsRunning() ? "" :

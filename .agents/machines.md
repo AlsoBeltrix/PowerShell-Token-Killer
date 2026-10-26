@@ -3,6 +3,23 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha` (hostname as reported) Pester hook publish on SDK 10.0.402 (2026-10-26)
+
+- Homebrew .NET SDK 10.0.402 (bundled NativeAOT pack 10.0.13) reproduces the
+  link failure recorded under `nagatha-2.local` below: the Pester suite's
+  `dotnet publish` of `server/PtkHook` dies at the clang step with
+  `ld: library 'ssl' not found`, which fails the whole `redirect hook and
+  installer` block in setup (61 reported failures, none of them assertions).
+- Same remedy, applied as environment variables on the `pwsh` child only:
+  `NetCoreTargetingPackRoot=/private/tmp/ptk-official-nuget-packs` and
+  `PrunePackageTargetingPackRoots=/opt/homebrew/Cellar/dotnet/10.0.402/libexec/packs`.
+  With them the publish succeeds and `otool -L` shows only system libraries.
+  `dotnet test` on the server solution needs neither.
+- The server solution restore reports NU1902/NU1903 for
+  `System.Security.Cryptography.Pkcs` 10.0.10 and
+  `System.Security.Cryptography.Xml` 10.0.10 (first seen 2026-10-26); see
+  `.agents/state.md` for the follow-up.
+
 ## `nagatha-2.local` native redirect hook (2026-09-08)
 
 - Hook-only deployment:

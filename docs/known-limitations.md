@@ -30,8 +30,11 @@ defect is not converted into an accepted limitation merely by appearing here.
   and one connection can have at most eight open sessions including `default`.
 - PTK exposes foreground invocation only. It has no detached/background job
   tool, and it never replays a timed-out or transport-ambiguous command.
-- PowerShell is the primary dialect. PTK does not infer Bash syntax; invoke
-  `bash -lc '...'` explicitly when Bash is required and available.
+- PowerShell is the dialect. PTK does not infer or translate Bash syntax; write
+  PowerShell. A script that is itself bash runs from a file or as a multi-line
+  here-string argument, `bash -lc @'...'@`, where bash is available; a quoted
+  `'...'` argument is a PowerShell string and splits at the first embedded
+  apostrophe.
 - PTK is not a sandbox, privilege boundary, or authorization layer. Commands
   inherit the launching harness's OS identity, permissions, network access, and
   upstream RBAC.

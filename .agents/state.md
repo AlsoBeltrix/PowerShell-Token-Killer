@@ -5,6 +5,24 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Release 0.3.0-rc.6 review and plan, 2026-10-26 (owner go: "thorough code
+review, find any issues, plan, review the plan with codex, fix"):** the
+caller reviewed the delta since the published rc.5 (`74aaeaf..eb25ccb0`, 20
+commits) plus the `-FromRelease` path; plan at
+`.agents/plans/release-0.3.0-rc.6.md`. Findings: rr-10 (HIGH, fixed on
+`master`: the audit quota control is now published atomically, after CI run
+`40377656597` showed a zero-length control failing closed under concurrent
+start; server suite 1,398/1,398 on a clean rerun after a loaded first run
+failed two unrelated timing tests once, named in the finding), rr-9 (rtk
+`install.sh` fetched unpinned from rtk's non-default
+`master`; owner ruling D2; live route proof needs an owner go because auto
+mode refuses executing the external script), rr-11 (macOS slow-seal elapsed
+recurrence; diagnosis reopened per the closed plan; ruling D3). Blocked:
+both codex dispatches died on a revoked refresh token (`codex login`
+needed); the plan's dispatch record has the details. Pending owner rulings:
+D1 version (rc.6 vs 0.3.0), D2, D3. Release steps 5–6 wait on the owner's
+publish go.
+
 **Grpc.Tools 2.85.0 for a native macOS protoc, 2026-10-26 (blanket fix
 authority):** the SIEM receiver cannot build on an Apple-silicon Mac without
 Rosetta: Grpc.Tools 2.83.0 ships only `tools/macosx_x64/protoc`, and this host

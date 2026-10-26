@@ -15,10 +15,19 @@ entries during a `drift` pass.
   `PrunePackageTargetingPackRoots=/opt/homebrew/Cellar/dotnet/10.0.402/libexec/packs`.
   With them the publish succeeds and `otool -L` shows only system libraries.
   `dotnet test` on the server solution needs neither.
-- The server solution restore reports NU1902/NU1903 for
+- The server solution restore reported NU1902/NU1903 for
   `System.Security.Cryptography.Pkcs` 10.0.10 and
-  `System.Security.Cryptography.Xml` 10.0.10 (first seen 2026-10-26); see
-  `.agents/state.md` for the follow-up.
+  `System.Security.Cryptography.Xml` 10.0.10 (first seen 2026-10-26); lifted
+  to 10.0.14 the same day (`.agents/state.md`).
+- macOS 27.0.1 on arm64 with **no Rosetta** (`arch -x86_64 /usr/bin/true`
+  fails with `Bad CPU type in executable`) and no Homebrew `protoc`. Grpc.Tools
+  2.83.0's `tools/macosx_x64/protoc` therefore cannot start, which fails every
+  SIEM receiver build and the SIEM half of `server/test-build-identity.ps1`.
+  Grpc.Tools 2.85.0's `tools/macosx_universal/protoc` runs natively here
+  (libprotoc 35.1); the repo pin was raised 2026-10-26.
+- The full clone abbreviates commits to eight characters
+  (`git rev-parse --short HEAD` = `812bc46c`), which is what exposed the
+  seven-character identity pin fixed in `ae18fca2`.
 
 ## `nagatha-2.local` native redirect hook (2026-09-08)
 

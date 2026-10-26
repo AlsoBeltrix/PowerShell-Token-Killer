@@ -5,6 +5,21 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Grpc.Tools 2.85.0 for a native macOS protoc, 2026-10-26 (blanket fix
+authority):** the SIEM receiver cannot build on an Apple-silicon Mac without
+Rosetta: Grpc.Tools 2.83.0 ships only `tools/macosx_x64/protoc`, and this host
+(macOS 27.0.1, arm64, no Rosetta, no Homebrew protoc) fails the publish with
+`Bad CPU type in executable`, which also stopped the build-identity proof at its
+SIEM half. Grpc.Tools 2.85.0 ships `tools/macosx_universal/protoc` (x86_64 and
+arm64; libprotoc 35.1, matching the Google.Protobuf 3.35.1 runtime pin) and a
+`linux_arm64` protoc, so the build-time pin in
+`siem/PtkSiemReceiver/PtkSiemReceiver.csproj` moves from 2.83.0 to 2.85.0, the
+same repair shape as the 2.82.0 to 2.83.0 bump of 2026-08-12. Verification:
+SIEM suite 357/357; `siem/test-manage.ps1` passed; all three SIEM projects report no vulnerable packages; `server/test-build-identity.ps1` passed in
+full (both PTK and SIEM layouts, with the hook-publish override from
+`.agents/machines.md`); `git diff --check` clean. CI on `master` will show the
+Linux and Windows protoc legs.
+
 **Cryptography package lift, 2026-10-26 (blanket fix authority):** the server
 restore flagged `System.Security.Cryptography.Pkcs` and `.Xml` at 10.0.10 with
 high-severity advisories (GHSA-846f-f764-76mx; GHSA-r955-8q5j-3h83 and two

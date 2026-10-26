@@ -5,6 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Cryptography package lift, 2026-10-26 (blanket fix authority):** the server
+restore flagged `System.Security.Cryptography.Pkcs` and `.Xml` at 10.0.10 with
+high-severity advisories (GHSA-846f-f764-76mx; GHSA-r955-8q5j-3h83 and two
+siblings; vulnerable through 10.0.12). Pkcs arrived transitively through
+`Microsoft.PowerShell.SDK` 7.6.3, so it gained a direct reference beside the
+existing Xml override; both now 10.0.14. `dotnet list package --vulnerable
+--include-transitive` reports no vulnerable packages in all six server
+projects; the SIEM solution was already clean. Verification: server suite 1,396/1,396; handshake passed (`0.2.0+ae18fca.build.…`); `git diff --check` clean. The build-identity proof published both PTK layouts but stopped at the SIEM receiver publish: Grpc.Tools 2.83.0 ships only an x86_64 protoc for macOS and this host (macOS 27.0.1, arm64) has no Rosetta, so the tool cannot start (`Bad CPU type in executable`); see the Grpc.Tools entry.
+
 **Deterministic seven-character source revision, 2026-10-26 (blanket fix
 authority):** the direct-checkout build stamped `git rev-parse --short HEAD`,
 whose length grows with the clone's object count; full clones of this repo now

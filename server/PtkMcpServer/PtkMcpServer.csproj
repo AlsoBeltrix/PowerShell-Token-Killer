@@ -21,8 +21,12 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.3" />
     <PackageReference Include="ModelContextProtocol" Version="1.4.0" />
-    <!-- Override PowerShell SDK's vulnerable 10.0.6 transitive minimum. -->
-    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.10" />
+    <!-- Both arrive transitively through Microsoft.PowerShell.SDK at vulnerable
+         versions (Xml 10.0.6 originally; Pkcs 10.0.10, GHSA-846f-f764-76mx, and
+         Xml 10.0.10, GHSA-r955-8q5j-3h83, flagged 2026-10-26). The direct
+         references lift them to a patched release. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+    <PackageReference Include="System.Security.Cryptography.Xml" Version="10.0.14" />
   </ItemGroup>
 
   <ItemGroup>

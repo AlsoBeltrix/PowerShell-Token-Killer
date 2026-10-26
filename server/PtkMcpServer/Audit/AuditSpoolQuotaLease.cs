@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
@@ -29,13 +30,17 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
     /// <summary>
     /// Creates the persistent control when a writer initializes a new spool,
     /// then waits for the same bounded interval used by the journal writer.
-    /// This is the only acquisition path that may create the control.
+    /// This is the only acquisition path that may create the control. The
+    /// control is published atomically with its marker already complete, so
+    /// a concurrent acquirer never observes a partial control.
     /// </summary>
-    internal static AuditSpoolQuotaLease CreateControlAndAcquire(string spoolRoot)
+    internal static AuditSpoolQuotaLease CreateControlAndAcquire(
+        string spoolRoot,
+        Action? controlPublishCheckedForTests = null)
     {
         var root = VerifyExistingRoot(spoolRoot);
         var controlPath = Path.Combine(root, ControlFileName);
-        EnsureControlFile(controlPath);
+        EnsureControlFile(root, controlPath, controlPublishCheckedForTests);
         return AcquireExistingCore(root, controlPath, WriterWait);
     }
 
@@ -178,28 +183,51 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
         return root;
     }
 
-    private static void EnsureControlFile(string controlPath)
+    private static void EnsureControlFile(
+        string root,
+        string controlPath,
+        Action? publishCheckedForTests)
     {
         if (EntryExists(controlPath))
             return;
 
-        FileStream stream;
+        // The marker is complete and durable before the control name exists.
+        // Writing it in place exposed a zero-length control: on Unix, .NET
+        // emulates FileShare with flock taken after open(2), so a concurrent
+        // acquirer could win the exclusive lock between the creator's open
+        // and its lock, verify a zero-length control, fail closed, and leave
+        // behind a control that no later start repairs (GitHub Actions run
+        // 40377656597, ubuntu, 2026-10-26). The atomic no-replace publish is
+        // the primitive the host identity already uses; a creator that loses
+        // the publish race discards its copy and acquires the winner's.
+        var temporaryPath = Path.Combine(root, $"{ControlFileName}.{Guid.NewGuid():N}.tmp");
         try
         {
-            stream = SecureAuditStorage.CreateExclusiveFile(controlPath);
+            using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
+            {
+                stream.WriteByte(ControlFormatMarker);
+                stream.Flush(flushToDisk: true);
+            }
+
+            SecureAuditStorage.PublishAtomically(
+                temporaryPath,
+                controlPath,
+                root,
+                publishCheckedForTests);
         }
-        catch (IOException) when (EntryExists(controlPath))
+        catch (Exception exception)
+            when (exception is IOException or Win32Exception && EntryExists(controlPath))
         {
-            // A concurrent writer published the one persistent control. The
-            // exclusive acquisition below waits for its write to finish and
-            // validates the exact retained bytes before trusting it.
+            // A concurrent creator published the one persistent control. The
+            // exclusive acquisition below validates its exact retained bytes
+            // before trusting it.
+            SecureAuditStorage.TryDelete(temporaryPath);
             return;
         }
-
-        using (stream)
+        catch
         {
-            stream.WriteByte(ControlFormatMarker);
-            stream.Flush(flushToDisk: true);
+            SecureAuditStorage.TryDelete(temporaryPath);
+            throw;
         }
     }
 

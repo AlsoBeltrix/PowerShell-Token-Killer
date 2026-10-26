@@ -38,6 +38,70 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
     }
 
     [Fact]
+    public void Writer_creation_never_exposes_a_partial_control()
+    {
+        var root = NewProtectedRoot();
+        var path = ControlPath(root);
+        var observed = false;
+
+        using (AuditSpoolQuotaLease.CreateControlAndAcquire(
+                   root,
+                   controlPublishCheckedForTests: () =>
+                   {
+                       // Just before the atomic publish: the control name does
+                       // not exist yet, so no concurrent acquirer can open a
+                       // zero-length control, and the pending file already
+                       // carries the complete marker.
+                       Assert.False(File.Exists(path));
+                       var pending = Assert.Single(Directory.EnumerateFiles(
+                           root, AuditSpoolQuotaLease.ControlFileName + ".*.tmp"));
+                       Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(pending));
+                       observed = true;
+                   }))
+        {
+        }
+
+        Assert.True(observed);
+        Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(path));
+        Assert.Empty(Directory.EnumerateFiles(root, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task Concurrent_writer_creations_converge_on_one_control_without_temporary_files()
+    {
+        var root = NewProtectedRoot();
+        var path = ControlPath(root);
+        using var start = new ManualResetEventSlim(initialState: false);
+        using var publishing = new Barrier(participantCount: 8);
+        var creators = Enumerable.Range(0, 8)
+            .Select(_ => Task.Factory.StartNew(
+                () =>
+                {
+                    start.Wait();
+                    // Every creator writes its own complete temporary marker,
+                    // then all eight publish at once: one wins the name, the
+                    // rest discard their copies and acquire the winner's.
+                    using var lease = AuditSpoolQuotaLease.CreateControlAndAcquire(
+                        root,
+                        controlPublishCheckedForTests: () =>
+                        {
+                            if (!publishing.SignalAndWait(TimeSpan.FromSeconds(10)))
+                                throw new TimeoutException("Concurrent control creators did not rendezvous.");
+                        });
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default))
+            .ToArray();
+
+        start.Set();
+        await Task.WhenAll(creators).WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(path));
+        Assert.Empty(Directory.EnumerateFiles(root, "*.tmp"));
+    }
+
+    [Fact]
     public void Existing_probe_does_not_create_a_missing_control()
     {
         var root = NewProtectedRoot();

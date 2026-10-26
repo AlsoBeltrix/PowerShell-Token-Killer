@@ -1,5 +1,22 @@
 # Review status
 
+## rr-10 zero-length audit quota control under concurrent start (2026-10-26)
+
+Fixed on `master`: the control is now published atomically with its marker
+complete, so a concurrent acquirer never sees a partial control and a lost
+publish race leaves nothing behind. Two guards added; reviewer verdict
+pending on codex re-login. See `.agents/review/findings/rr-10.md`.
+
+## rr-9 rtk installer script fetched unpinned (2026-10-26)
+
+Open: awaiting owner ruling D2 and the live route proof (needs an owner go
+to execute the external script). See `.agents/review/findings/rr-9.md`.
+
+## rr-11 macOS slow-seal elapsed recurrence (2026-10-26)
+
+Open: diagnosis reopened per the closed headroom plan; owner ruling D3 on
+gating. See `.agents/review/findings/rr-11.md`.
+
 ## rr-8 portable uploaded checksum manifest (2026-09-05 UTC)
 
 Closed: after explicit owner approval, only the unpublished rc.2 checksum

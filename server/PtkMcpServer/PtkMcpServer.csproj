@@ -41,10 +41,15 @@
 
   <!-- Source and per-build identity ride in the informational version. Package
        builders pass both explicitly; ordinary local builds discover source and
-       allocate a fresh identity here. -->
+       allocate a fresh identity here. The source revision is always the first
+       seven characters of the full commit: every proof and installer compares
+       Substring(0, 7) of the provenance commit, and `git rev-parse short`
+       lengthens with the clone's object count (this repo's full clones reached
+       eight in October 2026, failing the handshake on a direct-checkout
+       build while shallow CI clones still answered seven). -->
   <Target Name="PtkStampSourceCommit" BeforeTargets="GetAssemblyAttributes">
     <Exec Condition="'$(PtkSourceCommit)' == ''"
-          Command="git rev-parse --short HEAD"
+          Command="git rev-parse HEAD"
           ConsoleToMSBuild="true"
           StandardOutputImportance="low"
           ContinueOnError="true"
@@ -53,7 +58,8 @@
       <Output TaskParameter="ExitCode" PropertyName="PtkSourceCommitExitCode" />
     </Exec>
     <PropertyGroup>
-      <PtkSourceCommit Condition="'$(PtkSourceCommit)' == '' and '$(PtkSourceCommitExitCode)' == '0' and '$(PtkDetectedSourceCommit)' != ''">$(PtkDetectedSourceCommit.Trim())</PtkSourceCommit>
+      <PtkDetectedSourceCommit>$(PtkDetectedSourceCommit.Trim())</PtkDetectedSourceCommit>
+      <PtkSourceCommit Condition="'$(PtkSourceCommit)' == '' and '$(PtkSourceCommitExitCode)' == '0' and $(PtkDetectedSourceCommit.Length) &gt;= 7">$(PtkDetectedSourceCommit.Substring(0, 7))</PtkSourceCommit>
       <PtkSourceCommit Condition="'$(PtkSourceCommit)' == ''">unknown</PtkSourceCommit>
       <InformationalVersion>$(Version)+$(PtkSourceCommit).build.$(PtkBuildIdentity)</InformationalVersion>
     </PropertyGroup>

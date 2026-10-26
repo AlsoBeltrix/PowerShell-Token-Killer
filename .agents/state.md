@@ -5,6 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Deterministic seven-character source revision, 2026-10-26 (blanket fix
+authority):** the direct-checkout build stamped `git rev-parse --short HEAD`,
+whose length grows with the clone's object count; full clones of this repo now
+abbreviate to eight characters, so `server/test-handshake.ps1` failed its
+`[0-9a-f]{7}` exact-build check on a checkout launch
+(`0.2.0+812bc46c.build.…`) while shallow CI clones still answered seven. Every
+proof and installer compares `Substring(0, 7)` of the full provenance commit,
+so the csproj fallback now takes the first seven characters of
+`git rev-parse HEAD`. Guard: the handshake failed before and passed after on
+this host; the build-identity proof runs against the following commit.
+
 **bash-wrap guidance repair and worktree cleanup, 2026-10-26 (owner go):** a
 magneto session showed an agent wrapping every command as `bash -lc '...'`
 through `ptk_invoke`, then losing a Python heredoc to the quoting: PowerShell

@@ -41,3 +41,12 @@ ARM64); tar selection and exit-code check, recursive discovery, checksum
 verification before extraction with exact-name matching, `chmod +x` on
 Unix, Windows behavior unchanged, and existing `rtk`/`rtk-oss` installs
 still preferred through `PATH` or `PTK_RTK_PATH`.
+
+## Live route proof (owner-run, 2026-10-27)
+
+The direct-download route ran live on `nagatha` with the published rc.5
+payload in a throwaway home with an empty `PATH`: rtk fetched from its
+release and placed in `~/.local/bin`, the marker recorded, the PATH advice
+refusal before staging; then, with that directory on `PATH`, a full install
+with both handshakes green. Auto mode refuses the script, so the owner ran
+it from the shell (`scratchpad/rr9-route/run.sh` of session `315c7d81`).

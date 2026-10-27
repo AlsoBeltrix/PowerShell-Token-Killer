@@ -37,10 +37,16 @@ Publishing stays an owner action.
   uninstall passed.
 - The draft carries the final notes (`.agents/release-notes-0.3.0-rc.6.md`),
   title `ptk 0.3.0-rc.6`, prerelease, still a draft.
-- Not yet proved: the public `-FromRelease` bootstrap with no rtk on `PATH`,
-  which needs the assets to be public (D4, after publication; the scripted
-  proof is `scratchpad/rr9-route/run.sh` of session `315c7d81`, now set to
-  rc.6, for the owner to run since auto mode refuses it).
+- Live bootstrap route proof, owner-run on `nagatha` (macOS arm64,
+  2026-10-27 16:43 EDT) with this source's installer and the published rc.5
+  payload, in a throwaway home with an empty `PATH`: run A (rtk
+  unreachable) downloaded rtk's release archive, placed `~/.local/bin/rtk`,
+  recorded the marker with its hash, and stopped before staging with the
+  PATH advice (exit 1); run B (that directory on `PATH`) found it, installed
+  the payload, and passed the staged and installed handshakes ("Installed
+  ptk 0.3.0-rc.5"). The same script with `0.3.0-rc.6` proves the public
+  bootstrap of this release once its assets are public (D4, after
+  publication).
 
 ## Post-publication (owner publishes, channels publish on release)
 

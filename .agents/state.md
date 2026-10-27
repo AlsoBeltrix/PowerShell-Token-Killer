@@ -39,7 +39,8 @@ superseded, and the per-call identity decision is restored as ACTIVE
 and the final notes, downloaded-release verification `40575768473` green
 on all six jobs; record `.agents/release-candidate-0.3.0-rc.6.md`. Waiting
 on the owner's publish; on publication the package channels publish by
-themselves, then the public bootstrap proof (owner-run script) and the
+themselves, then the public bootstrap proof of rc.6 itself (owner-run
+script, already proved live against the rc.5 payload on `nagatha`) and the
 winget PR move.
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on

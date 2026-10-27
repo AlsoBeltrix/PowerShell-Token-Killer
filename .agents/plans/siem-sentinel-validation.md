@@ -1,5 +1,7 @@
 # Plan: Microsoft Sentinel real-SIEM validation and searchable PTK activity projection
 
+**SUPERSEDED 2026-10-27:** the SIEM integration was removed (`.agents/decisions.md`, 2026-10-27; `.agents/plans/audit-siem-removal.md`). Kept for history only; nothing below is current.
+
 ## Status and authority
 
 **DRAFT — planning authorized 2026-08-15; no Azure account inspection, resource creation,

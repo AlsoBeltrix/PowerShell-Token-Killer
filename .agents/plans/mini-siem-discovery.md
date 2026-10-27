@@ -1,5 +1,7 @@
 # Plan: mini-SIEM discovery (decision support for the OPEN 2026-07-14 receiver question — NO BUILD AUTHORIZED)
 
+**SUPERSEDED 2026-10-27:** the SIEM integration was removed (`.agents/decisions.md`, 2026-10-27; `.agents/plans/audit-siem-removal.md`). Kept for history only; nothing below is current.
+
 ## STOP — read this before the rest of the file
 
 **Status: DISCOVERY ONLY. The underlying decision is OPEN** — appended by the

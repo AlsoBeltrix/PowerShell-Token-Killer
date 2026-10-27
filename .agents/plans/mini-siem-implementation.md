@@ -1,5 +1,7 @@
 # Plan: mini-SIEM implementation — PTK-maintained OTLP receiver shipped as a separate product
 
+**SUPERSEDED 2026-10-27:** the SIEM integration was removed (`.agents/decisions.md`, 2026-10-27; `.agents/plans/audit-siem-removal.md`). Kept for history only; nothing below is current.
+
 ## Status and authority
 
 - **Document status: APPROVED — owner approved this plan as reviewed, in-session, 2026-07-15** (codex review loop complete: 3 rounds; round-3 verdict resolved 8/10 prior findings; the remaining 2 — msi-7, msi-15 — and the 5 new round-3 findings — msi-20…msi-24 — were remediated in this document after the final round, without further codex re-review; the post-loop remediation and its recorded tradeoffs were reviewed and approved by the owner as part of this approval). **S1-S7 are complete as of 2026-08-12.** Audit restoration executed S4a/S5/S6; the evidence reconciliation at `9ad7d9f` identified the missing S4b durability/custody work, which subsequently landed and closed cr10/cr11/cr12 before S7. S8 packaging remains a separately gated follow-up.

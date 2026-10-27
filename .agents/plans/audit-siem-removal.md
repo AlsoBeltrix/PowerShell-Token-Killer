@@ -1,6 +1,6 @@
 # Plan: remove audit and SIEM
 
-**Status:** APPROVED 2026-10-27 with a narrowed scope (owner rulings on
+**Status:** DONE 2026-10-27 (slices 1, 2, 4 and 5; slice 3 withdrawn). Approved the same day with a narrowed scope (owner rulings on
 `nagatha`, recorded in `.agents/decisions.md` under the 2026-10-27 decision's
 amendment). Implementation on `nagatha` is authorized (owner: "go",
 2026-10-27). **Scope as ruled:** remove the SIEM integration only — export
@@ -220,11 +220,11 @@ pushed before the next starts.
    `PTK_AUDIT_ROOT` from `test-handshake.ps1`, `direct-product-proof.ps1`
    and `test-production-acceptance.ps1`, since installs run the handshake.
    `ptk_state` no longer prints `audit:` lines.
-4. **Docs.** README, `server/README.md`, `PRIVACY.md`, `CONTRIBUTING.md`,
+4. **DONE 2026-10-27 — Docs.** README, `server/README.md`, `PRIVACY.md`, `CONTRIBUTING.md`,
    known limitations, harness support, the GitHub templates and
    `release-notes-next.md`: describe PTK without audit, plus R2's note on
    leftover `~/.ptk/audit` data.
-5. **Records.** Drop the SIEM/audit entries from the verification battery
+5. **DONE 2026-10-27 — Records.** Drop the SIEM/audit entries from the verification battery
    in `.agents/repo-guidance.md` (and its "dead" notice, replaced by one
    line pointing at the decision); archive the superseded and closed
    decision entries verbatim to `docs/history/decisions-archive.md` per the

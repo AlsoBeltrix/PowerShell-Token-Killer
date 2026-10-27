@@ -245,50 +245,7 @@ and `An_autoloaded_module_stays_warm_across_calls` (sabotage-proved
 2026-08-31), plus the release proof check `leaves module autoloading on`.
 Do not restore a None default without a new owner decision.
 
-### SUPERSEDED (2026-10-27): SIEM destinations are explicit and operator-chosen
-
-**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
-
-**Status:** Active — Decision C ruled by the owner on 2026-08-13 and amended
-the same day in `.agents/plans/siem-operator-readiness.md`.
-
-- PTK produces one full-fidelity, SIEM-compliant audit stream. The default setup
-  configures one operator-chosen destination; PTK never forces a second
-  destination.
-- An operator may explicitly opt into multiple destinations. PTK never silently
-  adds, discovers, enables, or duplicates evidence to a destination. Each
-  configured destination is named and independently removable by an explicit
-  operator action.
-- Every configured destination receives the same full-fidelity record required
-  by Decision A. Each has independent event/evidence acknowledgment cursors,
-  backlog, health, and errors so success at one cannot hide failure at another.
-- Each admitted record fixes its required destination set from the destinations
-  enabled at admission. Adding a destination does not silently copy historical
-  evidence to it; historical backfill is a separately confirmed action with an
-  explicit range and destination.
-- When an organization has a real SIEM, PTK can export directly to it. When no
-  full SIEM is available and an operator wants visibility, the operator may
-  deploy the PTK mini-SIEM at an explicitly chosen location and configure it as
-  a destination. An operator may also explicitly select both.
-- The mini-SIEM is a real deployable SIEM destination, not an automatically
-  installed local dashboard. The PTK installer must not install, start,
-  configure, or select it implicitly. Its package and deployment workflow remain
-  separate and explicit.
-- PTK's mandatory local audit journal remains the disclosed fail-closed source
-  journal/spool needed for admission, replay, and delivery proof. It is not an
-  export destination or local SIEM deployment and must not grow a duplicate
-  operator investigation dashboard.
-- Adding, changing, or removing a destination is transactional and explicit.
-  Removing a destination with unacknowledged evidence requires a separately
-  confirmed abandonment action whose undelivered range and custody consequence
-  are recorded; PTK never treats another destination's acknowledgment as that
-  destination's acknowledgment.
-
-This settles the amended Decision C and supersedes both the former
-local-evaluation/anchored-receiver split and the briefly recorded hard
-single-destination exclusion.
-
-### SUPERSEDED (2026-10-27): supported clients supply per-call agent/model identity when possible
+### ACTIVE (2026-08-13): supported clients supply per-call agent/model identity when possible
 
 **Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
 
@@ -317,41 +274,9 @@ single-destination exclusion.
 This settles Decision B. It does not require PTK to fabricate identity a client
 does not expose.
 
-### SUPERSEDED (2026-10-27): SIEM is a full-fidelity forensic record, not a metadata feed
-
-**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
-
-**Status:** Active — ruled by the owner on 2026-08-13 for Decision A in
-`.agents/plans/siem-operator-readiness.md`.
-
-- Every fact and evidence artifact PTK captures that could help reconstruct or
-  investigate an operation must be available in every explicitly configured
-  destination: the PTK mini-SIEM, an external SIEM, or both when the operator
-  opts in. This includes
-  exact submitted command bytes, complete
-  captured response/output and error evidence, actor/client and supplied
-  agent/model attribution with its trust source, requested and effective
-  execution context, tool/action/route/timeout, lifecycle and terminal details,
-  and chain, custody, gap, quarantine, disposition, and retention records.
-- There is no `metadata` versus `full_command` product mode and no unattended
-  default that suppresses command or output evidence. Every configured
-  destination must receive the complete stream; a destination that lacks
-  the complete retained evidence is visibly incomplete and cannot satisfy the
-  SIEM acceptance gate.
-- Summary tables may remain bounded, but every activity must drill into the
-  complete correlated raw events and retained evidence. Sensitive content is
-  protected by authentication, authorization, encrypted transport, protected
-  storage, access auditing, and retention — not by silently omitting it from
-  the forensic record.
-- PTK must label genuinely unavailable facts as unavailable and must not infer
-  model identity or other facts it did not receive. This decision does not
-  require PTK to invent client-only prompts, reasoning, or chat transcripts it
-  cannot observe; any such context a client deliberately supplies becomes part
-  of the full-fidelity record.
-
-This supersedes the plan's former recommendation for optional `metadata` and
-`full_command` policies. Decision C governs explicit destination selection and
-permits operator-opted-in multiple destinations without making them the default.
+**Kept 2026-10-27:** marked superseded with the SIEM decision on
+`NETWATCH-01`, restored under the owner's narrowed scope the same day: the
+identity values are journal content, and the journal stays.
 
 ### ACTIVE (2026-08-06): PTK's own verdict travels as structured data, never as text
 
@@ -660,30 +585,6 @@ not-a-security-boundary threat model.
 
 ## Open Decisions (deferred - not yet adopted)
 
-### CLOSED (2026-10-27): First external-SIEM acceptance product and test access
-
-**Closed by** ACTIVE (2026-10-27): Audit and SIEM are dead.
-
-**Status:** Open — Decision D in
-`.agents/plans/siem-operator-readiness.md`; no product or access method selected.
-
-**Verified constraint:** the owner has no access to Splunk or any other SIEM
-instance for testing. Do not assume the owner will provide credentials, a
-license, infrastructure, or an existing deployment.
-
-**Question:** Which real external SIEM is PTK's first witnessed acceptance
-target, and what lawful, authorized, reproducible path gives the project access
-to that product for published-artifact ingestion and operator-query proof?
-
-- Splunk remains a candidate because PTK already ships a `splunk_hec` adapter,
-  but the existing recommendation is not actionable without an approved access
-  path.
-- This constraint does not choose an open-source replacement, remove
-  real-product validation, or authorize representing protocol-fake conformance
-  as product acceptance.
-- Decision D must settle the product and access path together before S6 or the
-  external-SIEM portions of final acceptance can run.
-
 ### CLOSED (2026-10-27): Destructive-cmdlet policy gate (carried out of the archived go/no-go entry)
 
 **Closed by** ACTIVE (2026-10-27): Audit and SIEM are dead (enterprise use no
@@ -870,82 +771,6 @@ preconnect, returning `Compress-PtcObject` output. (3) Only then add the module 
 `ptk_reset`, and the router shaping layer. Each step is a separate authorized change
 requiring its own go.
 
-### SUPERSEDED (2026-10-27): Whether PTK should ship a mini SIEM receiver for external audit custody
-
-**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
-
-**Status:** Open — explicitly appended by the owner to the end of the decision
-queue. No implementation is authorized, and this scoped addition does not
-release the hold on broader decision-log reconciliation.
-
-**Question:** When Microsoft Sentinel, Splunk, or another robust SIEM is
-unavailable, should PTK ship or maintain a small external receiver so anchored
-audit records leave both the PowerShell runspace and the PTK source machine,
-receive secure durable custody, and remain useful for basic investigation and
-alerting?
-
-**Current evidence:** PTK already exports one immutable core record at a time
-over authenticated OTLP/HTTP HTTPS and advances its checkpoint only after a
-valid nonrejecting acknowledgment. `server/AUDIT-EXPORT.md` makes the configured
-receiver the observable anchor boundary and requires durable commit under a
-separately administered principal before success. A same-user sidecar or an
-in-memory collector is not a meaningful anchor; a default in-memory
-OpenTelemetry pipeline therefore does not answer this question.
-
-**Options to assess:**
-
-1. Ship a PTK-maintained minimal OTLP receiver with durable-before-ack storage,
-   authentication, chain/event validation, bounded query, retention, and basic
-   alerts.
-2. Ship only a hardened deployment profile and validation harness for existing
-   lightweight components that together provide the same external durable
-   boundary.
-3. Ship no fallback receiver and require an independently operated SIEM or
-   durable OTLP service for anchored mode.
-
-**Acceptance questions before any build:** define the threat model and separate
-service identity; durable-before-`200` semantics; duplicate handling for PTK's
-at-least-once delivery; event-ID/hash-chain validation; crash, disk-full,
-backpressure, and restart behavior; mTLS or equivalent authentication; receiver
-host storage protection; retention and read authorization; minimum useful
-queries/alerts; upgrade/backup/recovery ownership; and the security patch burden
-created by exposing a network service.
-
-**Standing recommendation:** discovery first, not implementation. Compare the
-smallest existing durable OTLP deployment against a custom receiver using the
-criteria above. Build PTK-specific receiver code only if no supportable existing
-shape provides the required external boundary at acceptable operational cost.
-
-### SUPERSEDED (2026-10-27): mini-SIEM — Option 1 approved; implementation authorized (S0)
-
-**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
-
-**Status:** Decided — the owner authorized implementation in-session on
-2026-07-15; this entry was recorded by the working session at explicit owner
-direction ("implementation is authorized. record it"). It resolves the OPEN
-(2026-07-14) entry above for this item only and does not release the hold on
-broader decision-log reconciliation.
-
-**Decision:** Option 1 — PTK ships and maintains a minimal OTLP receiver as a
-separate product under `siem/` (`siem/PtkSiem.slnx`), with the expanded product
-scope recorded in the approved plan.
-
-**Plan of record:** `.agents/plans/mini-siem-implementation.md` @ `87e4206`,
-approved by the owner as reviewed (codex review loop, 3 rounds; post-loop
-remediation of msi-7, msi-15, msi-20..msi-24 recorded in-document with explicit
-tradeoffs, including the msi-15 residual-risk acceptance).
-
-**Authorized shared-tree edits (exhaustive):** the CI job addition in
-`.github/workflows/ci.yml`, and one additive test-only commit under
-`server/PtkMcpServer.Tests` (opt-in exporter endpoint override + golden
-v1/v2/v3 fixture serializer), owner-approved before merge. All other work stays
-under `siem/`.
-
-**Effect:** Code slices S1+ are authorized as of this entry. The OPEN entry's
-acceptance questions are answered by the plan's S1-S7 sections and threat-model
-matrix; the standing "discovery first" recommendation was satisfied by
-`.agents/plans/mini-siem-discovery.md` before this authorization.
-
 ## 2026-07-19: Triage delegation for the rbc review batch
 
 **Decision:** The owner (non-developer) delegated finding triage to the
@@ -958,19 +783,6 @@ in `.agents/review/index.md` (triage log) and the finding records.
 Contested: rbc-8 (downgrade+defer) and rbc-13 (refute as by-design);
 codex consensus AGREE on both at turn 1 (thread
 `019f7cb9-c587-79c1-994b-a28e8d7b1ba1`).
-
-## 2026-07-19: SIEM receiver deployability gated on S3H (rbc-11)
-
-**Decision:** Master builds of `siem/PtkSiemReceiver` are not
-deployable for unattended ingest: retention options are parsed but not
-enforced, so the SQLite store grows without bound (rbc-11, MAJOR).
-Deployment guidance is gated on the owner's land/park decision for the
-isolated branch `plan/mini-siem-storage-hardening` (S3H).
-
-**Interim:** deployment warning added to `siem/PtkSiemReceiver/README.md`
-(this change). If S3H lands, retention sweeps enforce the limits and
-the warning is removed; if parked, the warning stands and disk usage
-must be bounded operationally. See `.agents/review/findings/rbc-11.md`.
 
 ## 2026-07-27: Production salvage decisions delegated to the implementing agent
 

@@ -29,8 +29,14 @@ retention no longer consults export floors (a journal with no destination
 never had any) and the undelivered-eviction counter is a constant zero
 kept for `ptk_state`'s shape. Verified: build clean, server suite 1,288
 (109 export tests gone), Pester 134, handshake green with the journal
-healthy local-only. Next: docs (slice 4), records (slice 5), then the
-release.
+healthy local-only. Docs (slice 4) and records (slice 5) followed the
+same day: the SIEM decision entries are archived verbatim in
+`docs/history/decisions-archive.md`, the four SIEM plans are marked
+superseded, and the per-call identity decision is restored as ACTIVE
+(journal content). The removal is complete. Next: the release
+(`0.3.0-rc.6`): exact-source CI green, `release/0.3.0-rc.6`, the
+`Release` workflow draft (seven assets), downloaded-release verification,
+the candidate record, then the owner's publish.
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
 auditing or SIEM; their code is to be removed under

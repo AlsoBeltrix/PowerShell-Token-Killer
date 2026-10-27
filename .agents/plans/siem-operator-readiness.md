@@ -1,5 +1,7 @@
 # Plan: SIEM operator readiness and attributable activity audit
 
+**SUPERSEDED 2026-10-27:** the SIEM integration was removed (`.agents/decisions.md`, 2026-10-27; `.agents/plans/audit-siem-removal.md`). Kept for history only; nothing below is current.
+
 ## Status and authority
 
 **HISTORICAL EXECUTION RECORD — S0-S5 were approved and executed. S5R-S7 are superseded

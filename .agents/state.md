@@ -67,7 +67,10 @@ channels; final release notes; candidate record before publication;
 bootstrap proof after publication with a stop-channel action; release
 branch deletion). Pending owner rulings: D1 version (rc.6 vs 0.3.0), D2
 rtk script source, D3 rr-11 gating, D4 channel publication versus the
-bootstrap proof. Release step 6 waits on the owner's publish go.
+bootstrap proof. Release step 6 waits on the owner's publish go; its
+first precondition, exact-source CI green, holds at `9c7590b6` (run
+`40556112874`, all six jobs). The rr-9 route proof is scripted for the
+owner (`scratchpad/rr9-route/run.sh` of session `315c7d81`).
 
 **Intermittent tests to watch (first seen this review, none with a prior
 history):** `UnixWorkerContainmentRegistryTests.A_transient_identity_failure_does_not_release_a_live_escape`

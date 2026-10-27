@@ -27,7 +27,10 @@ package-channel fixes. Resolve the review findings below before tagging.
 - Last published release: `v0.3.0-rc.5` at `74aaeaf` (2026-10-24, prerelease;
   record `.agents/release-candidate-0.3.0-rc.5.md`).
 - Delta to `master` `eb25ccb0`: 20 commits, 26 files, +724/−175.
-- CI at `eb25ccb0`: all six jobs green (run `40379342927`), including the
+- CI at `9c7590b6` (the reviewed head after rr-10, rr-12 and rr-13): all
+  six jobs green (run `40556112874`, 2026-10-27): Pester 136/134/134 on
+  windows/ubuntu/macos, server tests 1,398 on each, handshake passed on
+  each. Earlier, at `eb25ccb0`: all six jobs green (run `40379342927`), including the
   Linux and Windows protoc legs on Grpc.Tools 2.85.0. The two preceding
   `master` runs each failed one timing-sensitive server test once (rr-10,
   rr-11).

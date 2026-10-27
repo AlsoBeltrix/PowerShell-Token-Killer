@@ -36,11 +36,16 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
     /// </summary>
     internal static AuditSpoolQuotaLease CreateControlAndAcquire(
         string spoolRoot,
-        Action? controlPublishCheckedForTests = null)
+        Action? controlPublishCheckedForTests = null,
+        Action? controlPublishedForTests = null)
     {
         var root = VerifyExistingRoot(spoolRoot);
         var controlPath = Path.Combine(root, ControlFileName);
-        EnsureControlFile(root, controlPath, controlPublishCheckedForTests);
+        EnsureControlFile(
+            root,
+            controlPath,
+            controlPublishCheckedForTests,
+            controlPublishedForTests);
         return AcquireExistingCore(root, controlPath, WriterWait);
     }
 
@@ -186,7 +191,8 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
     private static void EnsureControlFile(
         string root,
         string controlPath,
-        Action? publishCheckedForTests)
+        Action? publishCheckedForTests,
+        Action? publishedForTests)
     {
         if (EntryExists(controlPath))
             return;
@@ -203,17 +209,38 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
         var temporaryPath = Path.Combine(root, $"{ControlFileName}.{Guid.NewGuid():N}.tmp");
         try
         {
-            using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
+            var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath);
+            try
             {
                 stream.WriteByte(ControlFormatMarker);
                 stream.Flush(flushToDisk: true);
-            }
+                if (OperatingSystem.IsWindows())
+                {
+                    // The no-replace move needs the name released (the
+                    // exclusive handle has no delete sharing) and is itself
+                    // atomic: the name appears complete or not at all.
+                    stream.Dispose();
+                }
 
-            SecureAuditStorage.PublishAtomically(
-                temporaryPath,
-                controlPath,
-                root,
-                publishCheckedForTests);
+                // On POSIX the publish is a hard link followed by removal of
+                // the temporary name, so the inode briefly carries two links,
+                // which the exclusive acquisition rejects as an aliased
+                // control (rr-10 reopen). The retained exclusive handle keeps
+                // flock(LOCK_EX) on that inode across the whole publish, so an
+                // acquirer that opens the published name in that interval
+                // meets ordinary lock contention and retries, instead of
+                // failing closed on a control that is about to be valid.
+                SecureAuditStorage.PublishAtomically(
+                    temporaryPath,
+                    controlPath,
+                    root,
+                    publishCheckedForTests,
+                    publishedForTests);
+            }
+            finally
+            {
+                stream.Dispose();
+            }
         }
         catch (Exception exception)
             when (exception is IOException or Win32Exception && EntryExists(controlPath))

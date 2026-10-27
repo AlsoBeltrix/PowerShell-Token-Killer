@@ -55,7 +55,11 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
                        Assert.False(File.Exists(path));
                        var pending = Assert.Single(Directory.EnumerateFiles(
                            root, AuditSpoolQuotaLease.ControlFileName + ".*.tmp"));
-                       Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(pending));
+                       // The creator still holds its exclusive handle (on
+                       // POSIX that lock covers the publish), so the pending
+                       // file is inspected by name only; its bytes become the
+                       // published control, checked below.
+                       Assert.Equal(1, new FileInfo(pending).Length);
                        observed = true;
                    }))
         {
@@ -97,6 +101,48 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
         start.Set();
         await Task.WhenAll(creators).WaitAsync(TimeSpan.FromSeconds(60));
 
+        Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(path));
+        Assert.Empty(Directory.EnumerateFiles(root, "*.tmp"));
+    }
+
+    [Fact]
+    public async Task Acquirers_during_control_publication_wait_instead_of_failing()
+    {
+        var root = NewProtectedRoot();
+        var path = ControlPath(root);
+        bool? probeAcquired = null;
+        Task<bool>? waiter = null;
+
+        var creator = AuditSpoolQuotaLease.CreateControlAndAcquire(
+            root,
+            controlPublishedForTests: () =>
+            {
+                // The control name exists. On POSIX the temporary name still
+                // does too, so the inode carries two links until the creator
+                // removes it: an acquirer must meet lock contention here,
+                // never an aliased control that fails closed. Windows has no
+                // such interval, so the probe simply acquires the complete
+                // control.
+                probeAcquired = AuditSpoolQuotaLease.TryAcquireExisting(root, out var probe);
+                probe?.Dispose();
+                waiter = Task.Factory.StartNew(
+                    () =>
+                    {
+                        using var lease = AuditSpoolQuotaLease.AcquireExisting(root);
+                        return true;
+                    },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+                // Let the blocking acquirer retry several times inside the
+                // interval (its retry delay is 25 ms).
+                Thread.Sleep(250);
+            });
+        creator.Dispose();
+
+        Assert.Equal(OperatingSystem.IsWindows(), probeAcquired);
+        Assert.NotNull(waiter);
+        Assert.True(await waiter!.WaitAsync(TimeSpan.FromSeconds(60)));
         Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(path));
         Assert.Empty(Directory.EnumerateFiles(root, "*.tmp"));
     }

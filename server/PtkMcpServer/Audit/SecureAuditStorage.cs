@@ -200,7 +200,8 @@ internal static class SecureAuditStorage
         string temporaryPath,
         string publishedPath,
         string root,
-        Action? destinationCheckedForTests = null)
+        Action? destinationCheckedForTests = null,
+        Action? publishedNameLinkedForTests = null)
     {
         RefuseLinkedPathComponents(root);
         RefuseLinkOrReparsePoint(temporaryPath);
@@ -216,6 +217,10 @@ internal static class SecureAuditStorage
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
             }
+
+            // The move is itself atomic; the seam only lets a test probe the
+            // published name at the same point on every platform.
+            publishedNameLinkedForTests?.Invoke();
         }
         else
         {
@@ -229,6 +234,12 @@ internal static class SecureAuditStorage
 
             try
             {
+                // Both names exist until the delete below, so the inode
+                // carries two links here. A caller whose readers reject an
+                // aliased file keeps its own exclusive handle on the temporary
+                // name open across this call (AuditSpoolQuotaLease), so an
+                // exclusive opener sees lock contention, not the alias.
+                publishedNameLinkedForTests?.Invoke();
                 File.Delete(temporaryPath);
                 FlushUnixDirectory(root);
             }

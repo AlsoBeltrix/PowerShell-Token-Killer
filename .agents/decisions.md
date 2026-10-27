@@ -34,6 +34,55 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-10-27): Audit and SIEM are dead; their code is to be removed
+
+**Status:** Active — the owner, 2026-10-27: "I don't want agents to spend dev
+time on auditing or SIEM work anymore … can we officially call it dead and
+plan the removal of the relevant code?"
+
+**Context (owner, 2026-10-24/27):** PTK's enterprise case — privileged
+administration under a corporate security architecture review — cannot pass
+such a review ("to pass security architecture review in a fortune 500
+company, none of this works"; "the product is pretty much dead in the current
+world"). The owner uses PTK at home for low-stakes tasks and has no SIEM
+("SEIM is useless for me"). The audit and SIEM machinery existed for the
+enterprise case.
+
+**Decision:**
+
+- No agent dev time on auditing or SIEM: no features, hardening, review
+  findings, flaky-test repair, or acceptance work for the audit journal, audit
+  export, the mini-SIEM receiver, or per-call attribution. The only audit/SIEM
+  work allowed is removing it, under `.agents/plans/audit-siem-removal.md`.
+- Removal is the plan of record. Until it lands, the shipped behavior is
+  unchanged and must not be extended.
+- An audit- or SIEM-only defect, finding, or test failure found before
+  removal is recorded (pointer to the removal plan) and not repaired.
+
+**Supersedes** (each now historical; archive verbatim to `docs/history/` as
+the removal plan's records step):
+
+- ACTIVE (2026-08-13, amended): SIEM destinations are explicit and
+  operator-chosen.
+- ACTIVE (2026-08-13): supported clients supply per-call agent/model identity
+  when possible.
+- ACTIVE (2026-08-13): SIEM is a full-fidelity forensic record, not a
+  metadata feed.
+- OPEN (2026-08-13): First external-SIEM acceptance product and test access
+  (closed: no SIEM acceptance will be pursued).
+- OPEN (2026-07-14) and DECIDED (2026-07-15): the mini-SIEM receiver (the
+  receiver is to be removed).
+- The audit plans' standing rules that auditing is base-level,
+  non-bypassable and fail-closed (`.agents/plans/audit-restoration.md`,
+  `audited-harness-sessions.md` audit sections, `siem-operator-readiness.md`,
+  `mini-siem-*.md`, `buffered-audit-startup.md`).
+
+**Also closed by the same context:** the OPEN (2026-07-08) destructive-cmdlet
+policy gate and `.agents/plans/security-layer.md`'s open question. The
+2026-10-24 discussion ended with the owner's judgment that no in-tool or
+adjacent control (confirmation prompts, policy files, RBAC/JEA, a broker)
+would pass an enterprise review; that use is no longer pursued.
+
 ### ACTIVE (2026-10-24): The installer puts rtk where rtk's own installer does
 
 **Status:** Active — owner direction, 2026-10-24: "rtk should go into
@@ -162,7 +211,9 @@ and `An_autoloaded_module_stays_warm_across_calls` (sabotage-proved
 2026-08-31), plus the release proof check `leaves module autoloading on`.
 Do not restore a None default without a new owner decision.
 
-### ACTIVE (2026-08-13, amended): SIEM destinations are explicit and operator-chosen
+### SUPERSEDED (2026-10-27): SIEM destinations are explicit and operator-chosen
+
+**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
 
 **Status:** Active — Decision C ruled by the owner on 2026-08-13 and amended
 the same day in `.agents/plans/siem-operator-readiness.md`.
@@ -203,7 +254,9 @@ This settles the amended Decision C and supersedes both the former
 local-evaluation/anchored-receiver split and the briefly recorded hard
 single-destination exclusion.
 
-### ACTIVE (2026-08-13): supported clients supply per-call agent/model identity when possible
+### SUPERSEDED (2026-10-27): supported clients supply per-call agent/model identity when possible
+
+**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
 
 **Status:** Active — ruled by the owner on 2026-08-13 for Decision B in
 `.agents/plans/siem-operator-readiness.md`.
@@ -230,7 +283,9 @@ single-destination exclusion.
 This settles Decision B. It does not require PTK to fabricate identity a client
 does not expose.
 
-### ACTIVE (2026-08-13): SIEM is a full-fidelity forensic record, not a metadata feed
+### SUPERSEDED (2026-10-27): SIEM is a full-fidelity forensic record, not a metadata feed
+
+**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
 
 **Status:** Active — ruled by the owner on 2026-08-13 for Decision A in
 `.agents/plans/siem-operator-readiness.md`.
@@ -571,7 +626,9 @@ not-a-security-boundary threat model.
 
 ## Open Decisions (deferred - not yet adopted)
 
-### OPEN (2026-08-13): First external-SIEM acceptance product and test access
+### CLOSED (2026-10-27): First external-SIEM acceptance product and test access
+
+**Closed by** ACTIVE (2026-10-27): Audit and SIEM are dead.
 
 **Status:** Open — Decision D in
 `.agents/plans/siem-operator-readiness.md`; no product or access method selected.
@@ -593,7 +650,10 @@ to that product for published-artifact ingestion and operator-query proof?
 - Decision D must settle the product and access path together before S6 or the
   external-SIEM portions of final acceptance can run.
 
-### OPEN (2026-07-08): Destructive-cmdlet policy gate (carried out of the archived go/no-go entry)
+### CLOSED (2026-10-27): Destructive-cmdlet policy gate (carried out of the archived go/no-go entry)
+
+**Closed by** ACTIVE (2026-10-27): Audit and SIEM are dead (enterprise use no
+longer pursued).
 
 **Status:** Open — parked on its own criterion, which survives the
 2026-07-08 GO decision. The full three-iteration design record (two
@@ -776,7 +836,9 @@ preconnect, returning `Compress-PtcObject` output. (3) Only then add the module 
 `ptk_reset`, and the router shaping layer. Each step is a separate authorized change
 requiring its own go.
 
-### OPEN (2026-07-14): Whether PTK should ship a mini SIEM receiver for external audit custody
+### SUPERSEDED (2026-10-27): Whether PTK should ship a mini SIEM receiver for external audit custody
+
+**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
 
 **Status:** Open — explicitly appended by the owner to the end of the decision
 queue. No implementation is authorized, and this scoped addition does not
@@ -820,7 +882,9 @@ smallest existing durable OTLP deployment against a custom receiver using the
 criteria above. Build PTK-specific receiver code only if no supportable existing
 shape provides the required external boundary at acceptable operational cost.
 
-### DECIDED (2026-07-15): mini-SIEM — Option 1 approved; implementation authorized (S0)
+### SUPERSEDED (2026-10-27): mini-SIEM — Option 1 approved; implementation authorized (S0)
+
+**Superseded by** ACTIVE (2026-10-27): Audit and SIEM are dead.
 
 **Status:** Decided — the owner authorized implementation in-session on
 2026-07-15; this entry was recorded by the working session at explicit owner

@@ -5,6 +5,14 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
+auditing or SIEM; their code is to be removed under
+`.agents/plans/audit-siem-removal.md` (decision in `.agents/decisions.md`).
+Audit/SIEM-only failures, findings and flaky tests are recorded, not
+repaired. The enterprise security question is closed too
+(`.agents/plans/security-layer.md`). PTK's remaining use is the owner's
+low-stakes home work.
+
 **Release 0.3.0-rc.6 review and plan, 2026-10-26 (owner go: "thorough code
 review, find any issues, plan, review the plan with codex, fix"):** the
 caller reviewed the delta since the published rc.5 (`74aaeaf..eb25ccb0`, 20

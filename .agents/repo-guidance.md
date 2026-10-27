@@ -41,6 +41,12 @@ approval.
 
 ## Verification
 
+**Audit and SIEM are dead (owner, 2026-10-27; `.agents/decisions.md`).** No
+agent time on audit, audit export, the `siem/` receiver or attribution except
+their removal (`.agents/plans/audit-siem-removal.md`). Until removal lands,
+the SIEM and audit entries below stay in the battery; a failure confined to
+them is recorded with a pointer to the removal plan, not repaired.
+
 Confirmed automated verification commands (re-run 2026-09-04 at clean
 local release-readiness head `0c9328a`
 on macOS arm64). Counts are volatile — treat them as of that commit and

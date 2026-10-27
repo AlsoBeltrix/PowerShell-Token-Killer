@@ -1,4 +1,15 @@
-# Plan: second security layer (policy-gate approach REJECTED 2026-07-11; problem OPEN)
+# Plan: second security layer (policy-gate approach REJECTED 2026-07-11; problem CLOSED 2026-10-27)
+
+> **CLOSED 2026-10-27** (`.agents/decisions.md`, "Audit and SIEM are dead"):
+> the enterprise privileged-administration use is no longer pursued. In the
+> 2026-10-24 discussion the owner ruled out, as unable to pass a corporate
+> security architecture review: ShouldProcess/`$ConfirmPreference` prompts
+> plus MCP elicitation ("not all destructive cmdlets prompt, and what counts
+> as destructive is environment dependent. changing a setting on the CEO's
+> mailbox without explicit permission is 'destructive'"), RBAC/JEA ("will
+> stop all cmdlets that fall outside the role. that's counterproductive"),
+> and a separate-identity approval broker. Do not re-propose these. The text
+> below is historical.
 
 ## STOP — read this before the rest of the file
 

@@ -64,10 +64,5 @@ defect is not converted into an accepted limitation merely by appearing here.
   has not been claimed as supported.
 - Current registration adapters do not inject per-call agent, model, task, or
   run identity. A client or proxy can supply the documented MCP `_meta`
-  namespace; otherwise audit export records these values as
+  namespace; otherwise the audit journal records these values as
   `not_supplied_by_client` rather than guessing.
-- Audit export and the standalone SIEM receiver are optional operator-managed
-  deployments. PTK never installs or selects a SIEM destination automatically.
-  Consult the operator-readiness status in
-  [`server/AUDIT-EXPORT.md`](../server/AUDIT-EXPORT.md) before relying on those
-  components for an external-SIEM investigation workflow.

@@ -218,33 +218,14 @@ execution routing.
 
 ## Audit status
 
-The mandatory local journal is admission, replay, and delivery
-infrastructure—not a SIEM destination or investigation dashboard. An operator
-explicitly selects one SIEM destination; additional destinations require
-deliberate opt-in. PTK never installs or selects a hidden destination, and its
-mini-SIEM is deployed separately when a full SIEM is unavailable.
-
-Published `0.3.0-rc.1` predates full-fidelity evidence export. Current source
-exports typed exact command, caller-response, and captured output/error
-artifacts. The standalone receiver indexes their correlation metadata, tracks
-manifest completeness, and serves authorized exact reassembly. The dashboard
-now includes authorized activity investigation and exact evidence reassembly.
-The receiver is separately installed with its packaged `manage.ps1`; PTK's
-packaged `scripts/ptk-audit-destination.ps1` explicitly selects it or an external
-SIEM without hand-written JSON. Real external-SIEM product acceptance remains open.
-
 Auditing is base-level and non-bypassable. Every server boot opens a
 mandatory, fail-closed local journal (default `~/.ptk/audit`, override
 `PTK_AUDIT_ROOT`) before serving any tool call: a healthy root journals every
 invoke durably before it runs, and an unwritable root refuses invokes
-fail-closed while the transport stays up. The local journal is the only
-execution gate — SIEM export is an optional, asynchronous leg that never
-gates execution: one endpoint-plus-token contract covers Splunk HEC, any
-OTLP/HTTP collector, and PTK's own standalone receiver (`siem/`, the fallback
-for environments without a SIEM, with its own query dashboard and alerting).
-A loopback web UI (default port 8317) serves the journal, quarantine
-evidence, export health, and settings. See
-[the audit, export, and receiver contract](server/AUDIT-EXPORT.md).
+fail-closed while the transport stays up. The journal is local only: PTK has
+no SIEM export, receiver, dashboard or admin tool. The SIEM integration was
+removed on 2026-10-27; export settings and cursor files left under the audit
+root by earlier versions are no longer read and may be deleted.
 
 Scripts and output artifacts can contain passwords, tokens, customer data, or
 other secrets — and the audit journal persists the **exact submitted script
@@ -610,14 +591,12 @@ Run the complete local verification battery:
 ```powershell
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 dotnet test server/PtkMcpServer.slnx
-dotnet test siem/PtkSiem.slnx
 pwsh -NoProfile -File server/test-handshake.ps1
 ```
 
 ## More Documentation
 
 - [MCP server setup, configuration, and operations](server/README.md)
-- [Audit, export, and SIEM receiver contract](server/AUDIT-EXPORT.md)
 - [Harness capability matrix](docs/harness-support.md)
 - [Known limitations](docs/known-limitations.md)
 - [Privacy](PRIVACY.md)

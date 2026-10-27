@@ -26,9 +26,9 @@ those live.
 - 2026-08-13 — PTK's Claude Code, Codex, grok, agy, and kimi registration
   adapters configure how to launch the MCP server; none currently injects
   PTK's per-call `_meta` attribution namespace. Omitted agent/model/task/run
-  values are exported as `not_supplied_by_client`, never inferred. A client or
-  proxy that can populate MCP `tools/call.params._meta` may use the contract in
-  [`server/AUDIT-EXPORT.md`](../server/AUDIT-EXPORT.md). Official OpenAI Codex
+  values are journaled as `not_supplied_by_client`, never inferred. A client
+  or proxy that can populate MCP `tools/call.params._meta` may supply them.
+  Official OpenAI Codex
   MCP documentation lists server launch, transport, authentication, and tool
   policy configuration, but no selected-model or task/run metadata injection
   setting: <https://learn.chatgpt.com/docs/extend/mcp?surface=cli>.

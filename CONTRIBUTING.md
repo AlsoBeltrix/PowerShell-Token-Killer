@@ -24,7 +24,6 @@ repository root:
 ```powershell
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 dotnet test server/PtkMcpServer.slnx
-dotnet test siem/PtkSiem.slnx
 pwsh -NoProfile -File server/test-handshake.ps1
 ```
 

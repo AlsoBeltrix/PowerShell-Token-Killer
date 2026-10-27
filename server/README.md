@@ -87,12 +87,11 @@ real audit health.
 passwords, tokens, and customer data; the store is created owner-only, and
 backups or copies of it need the same protection.
 
-SIEM export is optional and asynchronous — configured via `export.json` in
-the audit root, the loopback web UI's settings page (default port 8317), or
-`PTK_AUDIT_EXPORT_KIND` / `PTK_AUDIT_EXPORT_ENDPOINT` /
-`PTK_AUDIT_EXPORT_TOKEN` — and never gates execution. See
-[the audit, export, and receiver contract](AUDIT-EXPORT.md) for the full
-surface, including `PtkAuditAdmin` and the standalone SIEM receiver.
+The journal is local only. The SIEM integration (export destinations, the
+standalone receiver, the loopback web UI and the `PtkAuditAdmin` tool) was
+removed on 2026-10-27; `export.json`, `destinations.json` and cursor files
+left under the audit root by earlier versions are no longer read and may be
+deleted. `scripts/install.ps1 -Uninstall -Purge` removes all of `~/.ptk`.
 
 `ptk_invoke` returns command output, then labeled sections when present, in
 this order: `[exit] N`, `[stderr]`, `[errors]`, `[warnings]`, `[information]`,
@@ -328,7 +327,5 @@ gate is intentionally not implemented in the current code; review scripts at
 the client permission prompt instead of blanket-allowing the tool. Run the
 harness under the restricted identity whose upstream RBAC is meant to govern
 the work. Worker processes and platform containment reduce state leakage and
-cleanup failures; they do not make hostile commands safe. Ordinary runtime
-execution has audit disabled. Retained legacy evidence stores and the SIEM
-receiver contract are documented in [AUDIT-EXPORT.md](AUDIT-EXPORT.md), but
-they are not an authorization boundary or an enabled runtime producer.
+cleanup failures; they do not make hostile commands safe. The audit journal
+is a record of what ran, not an authorization boundary.

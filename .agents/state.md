@@ -45,8 +45,8 @@ type named for its own source and its cache validated); the installer
 now declares `#Requires -Version 7.3`, the floor its transaction module
 has needed since 2026-07-28 (`GetUnixFileMode`), and the README says
 "7.3 or later" (a contract correction the owner should know about); CI
-at `45a3476b` green on all six jobs; verdict on the tenth delta pending),
-rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
+at `45a3476b` green on all six jobs; codex accepted the tenth delta
+after withdrawing a disputed claim on evidence; closed), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
 installer's and removed on uninstall; codex verdict pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):

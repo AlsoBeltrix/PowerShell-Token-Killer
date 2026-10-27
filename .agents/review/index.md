@@ -9,7 +9,9 @@ pending. See `.agents/review/findings/rr-13.md`.
 
 ## rr-12 payload-resident rtk accepted, then deleted by the upgrade (2026-10-27)
 
-Fixed on `master` in ten commits: the rtk lookup skips the payload
+Closed (codex accepted after nine reopens, one Windows CI failure and one
+dispute resolved by evidence). Ten commits: the rtk lookup skips the
+payload
 (`~/.ptk/bin`, decided by exact read-only directory identity along every
 hop of the candidate's link chain: device and inode from `stat` on Unix,
 volume serial and 128-bit file id on Windows, so spellings, links,
@@ -18,8 +20,8 @@ server does (configured path only, whitespace unset, refused before any
 question when unusable), after nine codex reopens and one Windows CI
 failure; the Windows helper's type is named for its own source and its
 cache validated; the installer now declares the PowerShell 7.3 floor its
-transaction module has needed since July. Verdict on the tenth delta
-pending. See `.agents/review/findings/rr-12.md`.
+transaction module has needed since July. See
+`.agents/review/findings/rr-12.md`.
 
 ## rr-10 zero-length audit quota control under concurrent start (2026-10-26)
 

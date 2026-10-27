@@ -111,8 +111,9 @@ package-channel fixes. Resolve the review findings below before tagging.
    again, an empty control means creation in progress; codex reopened the
    rework (Windows unprotected-create instant; write before the identity
    proof), repaired in `f12939e3`; codex accepted; closed.
-3. **rr-12 and rr-13.** Fixed (`23e11dbc`, `3cfc06a1`); codex verdicts
-   pending, one dispatch at a time.
+3. **rr-12 and rr-13.** rr-12 closed (ten commits, `23e11dbc` to
+   `5d06b9f2`; codex accepted after nine reopens and one dispute
+   resolved by evidence). rr-13 fixed (`3cfc06a1`); verdict pending.
 4. **rr-9.** Apply D2; exercise the install.sh route locally in a throwaway
    home with no rtk on `PATH` (owner go needed to execute the external
    script under auto mode); add the same to CI on ubuntu and macos.
@@ -223,9 +224,11 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   Pester leg green (134/134); eighth delta, pins `9b35fd1d..45a3476b`:
   reopened (a same-name type from other source), with CI green on all
   six jobs; ninth delta, pins `45a3476b..961f28bd`: reopened (.NET 5
-  APIs against the declared PowerShell 7.0 floor); the tenth delta
-  declares the real floor, 7.3, which the transaction module has needed
-  since July, and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
+  APIs against the declared PowerShell 7.0 floor); tenth delta, pins
+  `961f28bd..5d06b9f2`: reopened on the claim that the Unix file-mode
+  APIs are .NET 6, disputed with the dotnet/runtime reference surface
+  (absent at v6.0.36, present at v7.0.0); verdict on `961f28bd..b1577146`:
+  accepted, claim withdrawn. rr-12 closed. rr-13 verdict, pins `22862834..3cfc06a1`:
   pending, dispatched after rr-12 resolves.
 
 ## For the owner's attention (done, reversible)

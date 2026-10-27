@@ -5,6 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Owner rulings, 2026-10-27 (on `nagatha`, one at a time):** the removal is
+the SIEM integration only (export destinations and coordinator, mini-SIEM
+receiver, `ptk-audit-admin`, the web UI); the local audit journal and
+everything around it stays untouched; existing `~/.ptk/audit` data is left
+alone; rc.6 as reviewed is dropped, the removal lands first and the next
+release (`0.3.0-rc.6` by delegation) carries both; the installer downloads
+rtk's release archive directly on every platform (no third-party script;
+reverses the 2026-10-24 mechanism, destination unchanged); rr-11 does not
+gate. Recorded in `.agents/decisions.md` (2026-10-27 amendment), the
+removal plan (approved, narrowed) and the rc.6 plan (superseded). Next: the
+direct-download installer change, then removal slices 1 and 2, then the
+release.
+
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
 auditing or SIEM; their code is to be removed under
 `.agents/plans/audit-siem-removal.md` (decision in `.agents/decisions.md`;

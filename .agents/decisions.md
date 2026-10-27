@@ -83,6 +83,31 @@ policy gate and `.agents/plans/security-layer.md`'s open question. The
 adjacent control (confirmation prompts, policy files, RBAC/JEA, a broker)
 would pass an enterprise review; that use is no longer pursued.
 
+**Amended 2026-10-27 (owner rulings on `nagatha`, answered one at a time):**
+
+- **Scope is the SIEM integration, not the local journal.** Owner: "what I
+  want removed is any tech debt around integrating with splunk or sentinel
+  since that won't be happening. I don't want other ptk functionality
+  changed." Removed: the export destinations (Sentinel, Splunk HEC, S3,
+  webhooks) and the export coordinator, the mini-SIEM receiver product and
+  its release artifacts, the `ptk-audit-admin` CLI and the port-8317 web UI
+  (the owner has used neither; both are enterprise operator tooling). Kept
+  exactly as it is: the local audit journal under `~/.ptk/audit`, its
+  fail-closed start, its call filter and its proof gates. The removal plan's
+  slice 3 is withdrawn and the "audit is dead" wording above is read as
+  "SIEM is dead; the journal is untouched".
+- **R1 is moot:** the unknown-argument check lives in the audit call
+  filter, which stays with the journal.
+- **R2:** existing `~/.ptk/audit` data is never touched by install or by
+  normal uninstall ("I didn't say delete the files blindly"); `-Purge`
+  removes all of `~/.ptk` as before. Documented, not deleted.
+- **R3:** rc.6 as reviewed is dropped. The removal lands first; the next
+  release carries it together with the installer work of
+  `.agents/plans/release-0.3.0-rc.6.md`.
+- **Version of that release:** delegated ("doesn't matter. whatever makes
+  sense. this won't be released widely"). The caller names it
+  `0.3.0-rc.6`, a prerelease, matching the audience.
+
 ### ACTIVE (2026-10-24): The installer puts rtk where rtk's own installer does
 
 **Status:** Active — owner direction, 2026-10-24: "rtk should go into

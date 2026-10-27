@@ -1,16 +1,19 @@
 # Plan: release 0.3.0-rc.6 — `install.ps1 -FromRelease` with the rtk fix
 
-**Status:** REVIEWED 2026-10-27, findings resolved. Codex reviewed the delta
-and this plan (dispatch records below). rr-10, rr-12 and rr-13 are closed
-(codex accepted each after its reopens); rr-9 and rr-11 stay open. The
-rr-9 route proof is scripted for the owner to run, since auto mode
-refuses to execute the external installer script even on the owner's go:
-`scratchpad/rr9-route/run.sh` of session `315c7d81`, two runs into a
-throwaway home (run A: rtk fetched by its own script, then the PATH
-advice; run B: full rc.5 install with that directory on `PATH`). Owner
-rulings D1–D4 pending, each with the reviewer's recommendation. Steps 1–5
-precede tagging; step 6 needs the owner's publish go, since publishing is
-an owner action; step 7 is post-release maintenance.
+**Status:** SUPERSEDED 2026-10-27 by owner rulings (recorded in
+`.agents/decisions.md`, 2026-10-27 amendment): rc.6 as reviewed is not
+released. The SIEM-integration removal (`.agents/plans/audit-siem-removal.md`)
+lands first; the next release, named `0.3.0-rc.6` by delegation, carries the
+removal together with this plan's installer work, and this plan's step 6
+procedure and its records apply to it. Findings: rr-10, rr-12 and rr-13
+closed; rr-9 closed by the D2 ruling (no script; the installer downloads
+rtk's release archive on every platform); rr-11 open, not gating (D3).
+Rulings: D1 delegated (`0.3.0-rc.6`); D2 direct archive download, no
+third-party script; D3 rr-11 does not gate: sixteen green macOS test jobs
+since the one failure on 2026-10-25 and no recurrence (the test reports its
+elapsed figure only when it fails, so green runs give nothing to sample);
+D4 option (a): channels publish on release as today, the public bootstrap
+proof runs immediately after, and the channels are withdrawn if it fails.
 
 ## Goal
 

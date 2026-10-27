@@ -1,9 +1,18 @@
 # Plan: remove audit and SIEM
 
-**Status:** DRAFT 2026-10-27, awaiting the owner's approval. Implementation
-happens on another box (owner, 2026-10-27: "don't start code removal here,
-that'll happen on the other box"); it needs an explicit go there. Owner
-rulings R1–R3 below are pending.
+**Status:** APPROVED 2026-10-27 with a narrowed scope (owner rulings on
+`nagatha`, recorded in `.agents/decisions.md` under the 2026-10-27 decision's
+amendment). Implementation on `nagatha` is authorized (owner: "go",
+2026-10-27). **Scope as ruled:** remove the SIEM integration only — export
+destinations and coordinator, the mini-SIEM receiver product, the
+`ptk-audit-admin` CLI, the port-8317 web UI; the local audit journal, its
+fail-closed start, its call filter (`AuditCallFilter`, so R1 is moot), its
+proof-script gates and `SecureAuditStorage` stay exactly where they are.
+Slice 3 below is withdrawn. The inventory below predates the narrowing and
+lists journal items that now stay; re-sweep for the narrowed scope before
+slice 2 and strike journal items from it. Existing `~/.ptk/audit` data is
+never touched (R2). rc.6 as reviewed is dropped; the removal lands first
+and ships with the installer work in the next release (R3).
 
 ## Authority and goal
 
@@ -159,7 +168,11 @@ Re-grep before editing.
   `audited-harness-sessions.md`, `production-reliability-salvage.md`.
 - `docs/history/*` stays as history.
 
-## Owner rulings needed
+## Owner rulings (settled 2026-10-27; see `.agents/decisions.md`)
+
+R1 moot (the audit call filter stays with the journal). R2: leave the data,
+document it. R3: removal first, rc.6 as reviewed dropped. The text below is
+the original ask, kept for the record.
 
 - **R1 — unknown tool arguments.** Today the audit filter refuses a call
   that carries an argument field the tool does not define. Removing the
@@ -199,7 +212,7 @@ pushed before the next starts.
    export status line, the attribution parsing, the export-only fixtures and
    tests. The local journal and its fail-closed gate stay, so
    `test-handshake.ps1`'s journal assertions still pass unchanged.
-3. **Remove the local journal and its gate.** Delete the rest of
+3. **WITHDRAWN 2026-10-27 (the local journal stays).** Formerly: remove the local journal and its gate. Delete the rest of
    `Audit/**` after moving `SecureAuditStorage` (above); delete the call
    sites in `Program.cs`, `WorkerSupervisor`, `SessionRuntime`,
    `RunspaceHost` and `OutputStore`; apply R1; delete and edit the tests

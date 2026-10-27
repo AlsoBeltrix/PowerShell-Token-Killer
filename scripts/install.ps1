@@ -712,32 +712,65 @@ function Test-PtkRtkAnswers {
 }
 
 # The path of a working rtk on PATH, or $null.
+# A directory's identity on Unix, where PowerShell exposes the inode: with
+# its birth time, since the device is not exposed. A link in the final
+# component is followed, so every spelling, link or junction of one
+# directory answers the same. Needs no write access.
+function Get-PtkDirectoryIdentity {
+    param([Parameter(Mandatory)][string]$Directory)
+    $item = Get-Item -LiteralPath $Directory -Force -ErrorAction Stop
+    if ($item.LinkTarget) {
+        $item = Get-Item -LiteralPath $item.ResolveLinkTarget($true).FullName -Force -ErrorAction Stop
+    }
+    if (-not $item.PSIsContainer) { return $null }
+    "$($item.UnixStat.Inode):$($item.CreationTimeUtc.Ticks)"
+}
+
 # True when $Path lies in the bin/ payload this installer replaces wholesale.
 # Installers before 2026-10-24 put rtk there; an upgrade deletes that copy
 # before the installed smoke test starts the server, so relying on it rolls
-# the whole install back (rr-12). Decided by identity, not spelling: a probe
-# file created in the payload directory must be visible through the
-# candidate's directory or one of its ancestors, which answers the same for
-# links, junctions, case and per-directory case sensitivity. A file link is
-# followed to its final target first; a chain that cannot be followed throws.
+# the whole install back (rr-12). Every name on the candidate's link chain
+# counts, starting with the one given: a name inside the payload disappears
+# with it wherever its target lies, and a target inside it goes with it. A
+# directory is matched by identity, never by spelling: inode and birth time
+# on Unix; on Windows, where no identity is exposed, a probe file created in
+# the payload directory (and removed afterwards) must be visible through
+# the directory. A chain that cannot be followed throws.
 function Test-PtkPayloadRtk {
     param([Parameter(Mandatory)][string]$Path)
     $payloadBin = Join-Path $ptkHome 'bin'
     if (-not (Test-Path -LiteralPath $payloadBin -PathType Container)) { return $false }
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-    if ($item.LinkTarget) { $item = $item.ResolveLinkTarget($true) }
-    $probeName = '.ptk-rtk-probe-' + [guid]::NewGuid().ToString('N')
-    New-Item -ItemType File -Path (Join-Path $payloadBin $probeName) -Force | Out-Null
+    $probeName = $null
+    if ($IsWindows) {
+        $probeName = '.ptk-rtk-probe-' + [guid]::NewGuid().ToString('N')
+        New-Item -ItemType File -Path (Join-Path $payloadBin $probeName) -Force | Out-Null
+    }
+    else {
+        $payloadIdentity = Get-PtkDirectoryIdentity -Directory $payloadBin
+    }
     try {
-        $directory = Split-Path -Parent $item.FullName
-        while ($directory) {
-            if (Test-Path -LiteralPath (Join-Path $directory $probeName) -PathType Leaf) { return $true }
-            $directory = Split-Path -Parent $directory
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        for ($hop = 0; $hop -lt 40; $hop++) {
+            $directory = Split-Path -Parent $item.FullName
+            while ($directory) {
+                $same = if ($IsWindows) {
+                    Test-Path -LiteralPath (Join-Path $directory $probeName) -PathType Leaf
+                }
+                else { (Get-PtkDirectoryIdentity -Directory $directory) -eq $payloadIdentity }
+                if ($same) { return $true }
+                $directory = Split-Path -Parent $directory
+            }
+            if (-not $item.LinkTarget) { return $false }
+            $item = Get-Item -LiteralPath $item.ResolveLinkTarget($false).FullName -Force -ErrorAction Stop
         }
-        $false
+        throw "The link chain under $Path exceeds 40 links."
     }
     finally {
-        Remove-Item -LiteralPath (Join-Path $payloadBin $probeName) -Force -ErrorAction SilentlyContinue
+        if ($probeName) {
+            $probe = Join-Path $payloadBin $probeName
+            Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $probe) { Write-Warning "Could not remove the probe file $probe." }
+        }
     }
 }
 

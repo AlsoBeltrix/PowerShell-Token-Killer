@@ -1784,7 +1784,7 @@ Describe 'development package layout' {
         # put rtk in ~/.ptk/bin, which the server never searches, and only
         # after the smoke tests had already started a server without it.
         It 'installs rtk where PATH can reach it, records it, and stops with advice when it cannot' {
-            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk'
+            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk', 'Get-PtkDirectoryIdentity'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $probe = {
@@ -1830,7 +1830,7 @@ Describe 'development package layout' {
         # Containment is decided by identity, so every spelling, link or
         # junction of the payload directory counts.
         It 'never relies on an rtk inside the payload it replaces' {
-            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Assert-PtkRtkPathUsable',
+            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Get-PtkDirectoryIdentity', 'Assert-PtkRtkPathUsable',
                 'Install-PtkRtk', 'Get-PtkRtkPathAdvice'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
@@ -1927,6 +1927,24 @@ Describe 'development package layout' {
                     & $probe @($otherBin) $loop | Should -Match 'refused: .* cannot be classified'
                     & $probe @($loopDir, $localBin) $null -install | Should -Be 'installed'
                     Test-Path -LiteralPath $localRtk | Should -BeTrue
+                    # The other direction: a name inside the payload whose
+                    # target lies outside disappears with the payload all the
+                    # same, directly or as an intermediate link.
+                    $externalRtk = & $placeRtk (Join-Path $caseHome 'external')
+                    Remove-Item -LiteralPath $payloadRtk -Force
+                    New-Item -ItemType SymbolicLink -Path $payloadRtk -Target $externalRtk | Out-Null
+                    & $probe @($payloadBin) $null | Should -Be 'none'
+                    & $probe @($otherBin) $payloadRtk | Should -Match 'refused: .* inside the ptk payload'
+                    & $probe @($linkDir) $null | Should -Be 'none'
+                    & $probe @($otherBin) (Join-Path $linkDir $rtkName) | Should -Match 'refused: .* inside the ptk payload'
+                    # A payload directory nobody can write to is still
+                    # recognized: identity needs no probe file on Unix.
+                    /bin/chmod 555 $payloadBin
+                    try {
+                        & $probe @($payloadBin) $null | Should -Be 'none'
+                        & $probe @($viaDir, $otherBin) $null | Should -Be $otherRtk
+                    }
+                    finally { /bin/chmod 755 $payloadBin }
                 }
                 # The probe file never outlives the check.
                 Get-ChildItem -LiteralPath $payloadBin -Force -Filter '.ptk-rtk-probe-*' | Should -BeNullOrEmpty

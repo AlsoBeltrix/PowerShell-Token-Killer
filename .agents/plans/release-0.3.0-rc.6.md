@@ -212,8 +212,10 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   reopened (filesystem case sensitivity, whitespace-only value, resolver
   exhaustion); third delta, pins `b2db2dab..1302b4be`: reopened (the case
   probe proved existence, not identity; an unguarded loop in the
-  stale-copy scan); the fourth delta decides containment by identity and
-  awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
+  stale-copy scan); fourth delta, pins `f29784c5..4fde314f`: reopened (a
+  payload name linking outside was accepted; the probe needed write
+  access); the fifth delta walks every link hop with write-free identity
+  on Unix and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
   pending, dispatched after rr-12 resolves.
 
 ## Pending owner decisions

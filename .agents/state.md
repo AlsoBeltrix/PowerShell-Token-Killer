@@ -26,11 +26,16 @@ accepted an rtk inside `~/.ptk/bin`, the payload the upgrade then deletes,
 and would also have left a `PTK_RTK_PATH` pointing there; codex verdict
 pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
-installer's and removed on uninstall; codex verdict pending). Blocked:
-both codex dispatches died on a revoked refresh token (`codex login`
-needed); the plan's dispatch record has the details. Pending owner rulings:
-D1 version (rc.6 vs 0.3.0), D2, D3. Release steps 5–6 wait on the owner's
-publish go.
+installer's and removed on uninstall; codex verdict pending). Codex ran
+every dispatch 2026-10-27 after `codex login` (plan dispatch record):
+rr-10 reopened, repaired and accepted; three installer candidates (rr-12,
+rr-13, a duplicate of rr-9); the plan review endorsed rc.6 with corrections
+now in the plan's steps 6–7 (publication auto-triggers the package
+channels; final release notes; candidate record before publication;
+bootstrap proof after publication with a stop-channel action; release
+branch deletion). Pending owner rulings: D1 version (rc.6 vs 0.3.0), D2
+rtk script source, D3 rr-11 gating, D4 channel publication versus the
+bootstrap proof. Release step 6 waits on the owner's publish go.
 
 **Grpc.Tools 2.85.0 for a native macOS protoc, 2026-10-26 (blanket fix
 authority):** the SIEM receiver cannot build on an Apple-silicon Mac without

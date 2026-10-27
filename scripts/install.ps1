@@ -713,24 +713,22 @@ function Test-PtkRtkAnswers {
 
 # The path of a working rtk on PATH, or $null.
 # Windows exposes no file identity to PowerShell, so a small compiled helper
-# asks the kernel: volume serial number and file index, through a handle
-# that follows a link or junction in the final component. Compiled once.
+# asks the kernel for the 128-bit file identity (FileIdInfo: 64-bit volume
+# serial number and 128-bit file id, exact on NTFS and ReFS alike), through
+# a handle that follows a link or junction in the final component. Fails
+# closed where the filesystem cannot answer. Compiled once.
 function Get-PtkWindowsFileIdentityType {
     if (-not $script:ptkWindowsFileIdentityType) {
-        $script:ptkWindowsFileIdentityType = Add-Type -Namespace PtkInstaller -Name FileIdentity -PassThru -MemberDefinition @'
+        # Add-Type emits the class and its nested struct; keep the class, and
+        # reuse it when this session already compiled it.
+        $script:ptkWindowsFileIdentityType = ('PtkInstaller.FileIdentity' -as [type]) ??
+        (Add-Type -Namespace PtkInstaller -Name FileIdentity -PassThru -MemberDefinition @'
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
-public struct ByHandleFileInformation
+public struct FileIdInfo
 {
-    public uint FileAttributes;
-    public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
-    public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
-    public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
-    public uint VolumeSerialNumber;
-    public uint FileSizeHigh;
-    public uint FileSizeLow;
-    public uint NumberOfLinks;
-    public uint FileIndexHigh;
-    public uint FileIndexLow;
+    public ulong VolumeSerialNumber;
+    public ulong FileIdLow;
+    public ulong FileIdHigh;
 }
 
 [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
@@ -739,29 +737,30 @@ private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
     uint creationDisposition, uint flagsAndAttributes, System.IntPtr templateFile);
 
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-private static extern bool GetFileInformationByHandle(
-    Microsoft.Win32.SafeHandles.SafeFileHandle handle, out ByHandleFileInformation information);
+private static extern bool GetFileInformationByHandleEx(
+    Microsoft.Win32.SafeHandles.SafeFileHandle handle, int informationClass, out FileIdInfo information, uint size);
 
 // No access rights, every share mode, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS
 // (required to open a directory). Links and junctions are followed.
+// FileIdInfo is information class 18.
 public static string Identify(string path)
 {
     using (var handle = CreateFileW(path, 0, 7, System.IntPtr.Zero, 3, 0x02000000, System.IntPtr.Zero))
     {
         if (handle.IsInvalid) throw new System.ComponentModel.Win32Exception();
-        ByHandleFileInformation information;
-        if (!GetFileInformationByHandle(handle, out information)) throw new System.ComponentModel.Win32Exception();
-        return information.VolumeSerialNumber + ":" + information.FileIndexHigh + ":" + information.FileIndexLow;
+        FileIdInfo information;
+        if (!GetFileInformationByHandleEx(handle, 18, out information, 24)) throw new System.ComponentModel.Win32Exception();
+        return information.VolumeSerialNumber + ":" + information.FileIdHigh.ToString("x16") + information.FileIdLow.ToString("x16");
     }
 }
-'@
+'@ | Where-Object { $_.Name -eq 'FileIdentity' })
     }
     $script:ptkWindowsFileIdentityType
 }
 
 # A directory's identity, exact and read-only: device and inode from stat
 # on Unix (following a link in the final component), volume serial number
-# and file index on Windows. Every spelling, link or junction of one
+# and 128-bit file id on Windows. Every spelling, link or junction of one
 # directory answers the same; nothing is written. Throws when the directory
 # cannot be identified.
 function Get-PtkDirectoryIdentity {

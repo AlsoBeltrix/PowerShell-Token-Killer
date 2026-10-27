@@ -1888,9 +1888,13 @@ Describe 'development package layout' {
                 $identify = [scriptblock]::Create(($bodies -join "`n") +
                         "`nGet-PtkDirectoryIdentity -Directory `$args[0]")
                 $payloadIdentity = & $identify $payloadBin
-                $payloadIdentity | Should -Match '^\d+:\d+(:\d+)?$'
+                $payloadIdentity | Should -Match ($IsWindows ? '^\d+:[0-9a-f]{32}$' : '^\d+:\d+$')
                 & $identify $viaDir | Should -Be $payloadIdentity
                 & $identify $otherBin | Should -Not -Be $payloadIdentity
+                # Nothing may be written into the payload directory by any
+                # check below: creating and removing a file would move its
+                # modification time.
+                $payloadWriteTime = (Get-Item -LiteralPath $payloadBin -Force).LastWriteTimeUtc
                 & $probe @($payloadBin) $null | Should -Be 'none'
                 & $probe @($payloadBin, $otherBin) $null | Should -Be $otherRtk
                 # Configured-only resolution: PTK_RTK_PATH wins with nothing on PATH.
@@ -1967,8 +1971,11 @@ Describe 'development package layout' {
                     & $probe @($otherBin) (Join-Path $chainDir 'link40') | Should -Be (Join-Path $chainDir 'link40')
                     & $probe @($otherBin) (Join-Path $chainDir 'link41') | Should -Match 'refused: .* cannot be classified'
                 }
-                # Nothing is ever written into the payload directory.
+                # Nothing was ever written into the payload directory.
                 Get-ChildItem -LiteralPath $payloadBin -Force | ForEach-Object Name | Should -Be @($rtkName)
+                if ($IsWindows) {
+                    (Get-Item -LiteralPath $payloadBin -Force).LastWriteTimeUtc | Should -Be $payloadWriteTime
+                }
             }
             finally {
                 $env:PATH, $env:PTK_RTK_PATH = $savedPath, $savedRtk

@@ -30,14 +30,16 @@ recurrence; diagnosis reopened per the closed plan; ruling D3), rr-12
 (MEDIUM, from the codex change review, fixed 2026-10-27: the installer
 accepted an rtk inside `~/.ptk/bin`, the payload the upgrade then deletes,
 and would also have left a `PTK_RTK_PATH` pointing there; codex reopened
-it five times (configured-path precedence and link following; case
+it six times (configured-path precedence and link following; case
 sensitivity, whitespace and resolver exhaustion; the case probe's identity
 gap and an unguarded loop; payload names linking outside and the probe's
 write requirement; inode-only identity, the Windows probe write and a
-hop-bound off by one), each repaired the same day; containment is now
-decided by exact read-only directory identity along every link hop
-(`stat` device and inode on Unix, volume serial and file index on
-Windows); verdict on the sixth delta pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
+hop-bound off by one; the 64-bit Windows file index), each repaired the
+same day, plus one Windows CI failure of the compiled helper (an array
+of types kept); containment is now decided by exact read-only directory
+identity along every link hop (`stat` device and inode on Unix, volume
+serial and 128-bit file id on Windows); verdict on the seventh delta
+pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
 installer's and removed on uninstall; codex verdict pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):

@@ -54,6 +54,13 @@ Publishing stays an owner action.
   0.3.0-rc.6 -InstallPrerequisites`, isolated home, no rtk on `PATH`):
   _pending_.
 - Package channels (`Publish package channels` on `release: published`):
-  _pending_.
+  the owner published the draft 2026-10-27 20:42 UTC. The automatic run
+  `40580462561` failed in the Homebrew validation on all three runners and
+  published nothing: `brew audit` refused the throwaway tap, because
+  Homebrew 7.0.11 (released 2026-10-26, Homebrew/brew#24352) limits
+  implicit tap trust to install commands; the local 7.0.10 audit still
+  passes without trust, so the proof is the CI run. Fixed by `brew trust
+  ptk-validation/local` after `tap-new` in `validate-packages.yml`, then
+  re-dispatched from master with `version=0.3.0-rc.6`: _result pending_.
 - winget: move microsoft/winget-pkgs#460717 to rc.6 or open its successor:
   _pending_.

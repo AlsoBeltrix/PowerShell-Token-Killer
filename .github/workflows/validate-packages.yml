@@ -75,6 +75,11 @@ jobs:
           git config --global user.name 'github-actions[bot]'
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
           brew tap-new ptk-validation/local
+          # Homebrew 7.0.11 (2026-10-26) limits implicit tap trust to install
+          # commands, so `brew audit` refused the untrusted throwaway tap and
+          # the 0.3.0-rc.6 publication run 40580462561 published nothing. The
+          # tap holds only the formula this job copies in below.
+          brew trust ptk-validation/local
           cp packages/homebrew/Formula/ptk.rb "$(brew --repository ptk-validation/local)/Formula/ptk.rb"
           brew style ptk-validation/local/ptk
           brew audit --strict --formula ptk-validation/local/ptk

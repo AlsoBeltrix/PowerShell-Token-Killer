@@ -873,7 +873,12 @@ function Assert-PtkRtkTargetFree {
     $target = Join-Path $rtkInstallDir ($IsWindows ? 'rtk.exe' : 'rtk')
     if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { return }
     if (Test-PtkInstalledRtk -Path $target) { return }
-    throw ("rtk already exists at $target, but it is not the copy this installer placed and ptk " +
+    throw (Get-PtkRtkTargetTakenMessage -Target $target)
+}
+
+function Get-PtkRtkTargetTakenMessage {
+    param([Parameter(Mandatory)][string]$Target)
+    ("rtk already exists at $Target, but it is not the copy this installer placed and ptk " +
         "cannot use it: its directory is not on PATH, or it does not answer 'rtk rewrite'. " +
         "Add $rtkInstallDir to PATH, or remove that file, and re-run this installer.")
 }
@@ -930,18 +935,20 @@ function Get-PtkRtkExpectedHash {
 function Install-PtkRtkRelease {
     param([Parameter(Mandatory)][string]$Staging)
     $asset = 'rtk-x86_64-pc-windows-msvc.zip'
-    $staging = Join-Path ([IO.Path]::GetTempPath()) ("ptk-rtk-{0}" -f ([guid]::NewGuid()))
-    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    # Download scratch, distinct from $Staging: PowerShell variable names
+    # ignore case, so a local named like the parameter would replace it.
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) ("ptk-rtk-{0}" -f ([guid]::NewGuid()))
+    New-Item -ItemType Directory -Path $scratch -Force | Out-Null
     try {
-        $archive = Join-Path $staging $asset
+        $archive = Join-Path $scratch $asset
         Invoke-WebRequest -UseBasicParsing -Uri "$rtkReleaseBase/$asset" -OutFile $archive
-        $sums = Join-Path $staging 'checksums.txt'
+        $sums = Join-Path $scratch 'checksums.txt'
         Invoke-WebRequest -UseBasicParsing -Uri "$rtkReleaseBase/checksums.txt" -OutFile $sums
         $expected = Get-PtkRtkExpectedHash -ChecksumLines @(Get-Content -LiteralPath $sums) -Asset $asset
         $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($expected -ne $actual) { throw "Checksum mismatch for $asset; refusing to install it." }
 
-        $extracted = Join-Path $staging 'x'
+        $extracted = Join-Path $scratch 'x'
         Expand-Archive -LiteralPath $archive -DestinationPath $extracted -Force
         $found = Get-ChildItem -LiteralPath $extracted -Filter 'rtk.exe' -Recurse -File |
             Select-Object -First 1
@@ -952,7 +959,7 @@ function Install-PtkRtkRelease {
         $stagedBinary
     }
     finally {
-        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1025,38 +1032,46 @@ function Install-PtkRtk {
         Write-Host "Ignoring $($stale[0].Source): it sits inside the ptk payload this install replaces."
     }
     Write-Host "rtk not found; installing it into $rtkInstallDir (required dependency)."
-    # Fetched into a private staging directory beside the target, then placed
-    # with a move that never overwrites: the installer's own earlier copy is
-    # removed first (proved by marker and hash), and anything else that
-    # appeared since the check before consent makes the move fail, so the
-    # refusal holds at the write itself, not only at the question (rr-13).
     New-Item -ItemType Directory -Path $rtkInstallDir -Force | Out-Null
-    $staging = Join-Path $rtkInstallDir ('.ptk-rtk-staging-' + [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $staging | Out-Null
-    try {
-        $staged = if ($IsWindows) { Install-PtkRtkRelease -Staging $staging } else { Install-PtkRtkWithScript -Staging $staging }
-        if (-not (Test-Path -LiteralPath $staged -PathType Leaf)) {
-            throw "rtk's installer finished, but $staged does not exist."
+    $placed = Join-Path $rtkInstallDir ($IsWindows ? 'rtk.exe' : 'rtk')
+    $marker = Join-Path $ptkHome $rtkMarkerName
+    if (Test-Path -LiteralPath $placed -PathType Leaf) {
+        # A copy is already there. The installer's own, proved by marker and
+        # hash, is reused as it is (a re-run after the user fixes PATH), so
+        # nothing is ever deleted by name; any other copy is refused here as
+        # well, in case it appeared after the check before consent (rr-13).
+        if (-not (Test-PtkInstalledRtk -Path $placed)) { throw (Get-PtkRtkTargetTakenMessage -Target $placed) }
+        Write-Host "rtk placed by an earlier run is reused: $placed"
+    }
+    else {
+        # Fetched into a private staging directory beside the target, hashed
+        # there, claimed by the marker, then placed with a move that never
+        # overwrites: whatever appeared at the target meanwhile makes the
+        # move fail, the claim is withdrawn, and the refusal holds at the
+        # write itself, not only at the question. The marker's hash is the
+        # staged bytes', so it can never describe a file someone else put
+        # there (rr-13).
+        $staging = Join-Path $rtkInstallDir ('.ptk-rtk-staging-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $staging | Out-Null
+        try {
+            $staged = if ($IsWindows) { Install-PtkRtkRelease -Staging $staging } else { Install-PtkRtkWithScript -Staging $staging }
+            if (-not (Test-Path -LiteralPath $staged -PathType Leaf)) {
+                throw "rtk's installer finished, but $staged does not exist."
+            }
+            $hash = (Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash.ToLowerInvariant()
+            New-Item -ItemType Directory -Path $ptkHome -Force | Out-Null
+            Set-Content -LiteralPath $marker -Value "$placed`n$hash" -NoNewline
+            try { [IO.File]::Move($staged, $placed, $false) }
+            catch {
+                Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+                throw ("rtk appeared at $placed while this installer was fetching one, and it is not the copy " +
+                    "this installer placed. Add $rtkInstallDir to PATH, or remove that file, and re-run this installer.")
+            }
         }
-        $placed = Join-Path $rtkInstallDir (Split-Path -Leaf $staged)
-        if ((Test-Path -LiteralPath $placed -PathType Leaf) -and (Test-PtkInstalledRtk -Path $placed)) {
-            Remove-Item -LiteralPath $placed -Force
-        }
-        try { [IO.File]::Move($staged, $placed, $false) }
-        catch {
-            throw ("rtk appeared at $placed while this installer was fetching one, and it is not the copy " +
-                "this installer placed. Add $rtkInstallDir to PATH, or remove that file, and re-run this installer.")
+        finally {
+            Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
-    finally {
-        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    # Recorded before the checks below, so a re-run after the user fixes PATH
-    # still knows which copy uninstall may remove. The hash keeps uninstall
-    # from removing a later rtk the user put at the same path themselves.
-    New-Item -ItemType Directory -Path $ptkHome -Force | Out-Null
-    $hash = (Get-FileHash -LiteralPath $placed -Algorithm SHA256).Hash.ToLowerInvariant()
-    Set-Content -LiteralPath (Join-Path $ptkHome $rtkMarkerName) -Value "$placed`n$hash" -NoNewline
 
     if (-not (Test-PtkRtkAnswers -Path $placed)) {
         $hint = if ($TargetRid -eq 'win-arm64') {

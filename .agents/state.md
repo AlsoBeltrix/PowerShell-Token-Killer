@@ -49,9 +49,14 @@ at `45a3476b` green on all six jobs; codex accepted the tenth delta
 after withdrawing a disputed claim on evidence; closed), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
 installer's and removed on uninstall; codex reopened it for the string
-ownership compare and the unguarded write boundary, repaired the same
-day with identity-based ownership and a no-clobber placement from a
-staging directory; verdict on the repair pending). Codex ran
+ownership compare and the unguarded write boundary, repaired with
+identity-based ownership and a no-clobber placement from a staging
+directory; reopened again for a Windows fetcher bug the repair had
+introduced (a scratch variable shadowing the staging parameter) and two
+pathname windows, repaired by reusing the installer's own copy instead of
+deleting by name and by claiming the staged bytes before the move, with
+both fetchers now tested under stubbed downloads; verdict on the third
+delta pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):
 rr-10 reopened, repaired and accepted; three installer candidates (rr-12,
 rr-13, a duplicate of rr-9); the plan review endorsed rc.6 with corrections

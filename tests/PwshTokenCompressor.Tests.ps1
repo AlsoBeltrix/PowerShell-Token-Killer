@@ -1785,7 +1785,7 @@ Describe 'development package layout' {
         # after the smoke tests had already started a server without it.
         It 'installs rtk where PATH can reach it, records it, and stops with advice when it cannot' {
             $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk', 'Get-PtkDirectoryIdentity',
-                'Get-PtkWindowsFileIdentityType', 'Test-PtkInstalledRtk'
+                'Get-PtkWindowsFileIdentityType', 'Test-PtkInstalledRtk', 'Get-PtkRtkTargetTakenMessage'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $probe = {
@@ -1882,6 +1882,7 @@ Describe 'development package layout' {
                             "Set-Content -LiteralPath `$f -Value 'rtk'; " +
                             "if (-not `$IsWindows) { /bin/chmod +x `$f }; `$f }" +
                             "`nfunction Test-PtkInstalledRtk { `$false }" +
+                            "`nfunction Get-PtkRtkTargetTakenMessage { param(`$Target) 'taken' }" +
                             "`nfunction Update-PtkProcessPath { }" + $run))
                 }
                 # A runspace that already holds an earlier helper, a stale
@@ -2007,8 +2008,9 @@ Describe 'development package layout' {
         # this installer did not place is the user's own, merely unreachable;
         # overwriting it would also let uninstall delete it later.
         It 'refuses to overwrite an rtk it did not place at the install target' {
-            $names = 'Assert-PtkRtkConsent', 'Assert-PtkRtkTargetFree', 'Test-PtkInstalledRtk', 'Get-PtkDirectoryIdentity',
-                'Get-PtkWindowsFileIdentityType', 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk'
+            $names = 'Assert-PtkRtkConsent', 'Assert-PtkRtkTargetFree', 'Get-PtkRtkTargetTakenMessage', 'Test-PtkInstalledRtk',
+                'Get-PtkDirectoryIdentity', 'Get-PtkWindowsFileIdentityType', 'Install-PtkRtk', 'Get-PtkRtkPathAdvice',
+                'Test-PtkPayloadRtk'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             # The install directory is made absolute once, so the marker
@@ -2036,27 +2038,34 @@ Describe 'development package layout' {
                 }
                 $run = if ($install) {
                     # The fake fetch stages its binary; with -interfere a foreign
-                    # rtk appears at the target meanwhile, after the consent check.
+                    # rtk appears at the target meanwhile, after the consent
+                    # check. PATH becomes able to reach the target only when the
+                    # installer refreshes it, as after a user's PATH fix.
                     "`nfunction Install-PtkRtkRelease { param(`$Staging) Install-Fake `$Staging }" +
                     "`nfunction Install-PtkRtkWithScript { param(`$Staging) Install-Fake `$Staging }" +
-                    "`nfunction Install-Fake { param(`$s) if (`$$interfere) { Set-Content -LiteralPath '$target' -Value 'foreign' -NoNewline }; " +
-                    "`$f = Join-Path `$s '$leaf'; Set-Content -LiteralPath `$f -Value 'rtk' -NoNewline; `$script:placedNow = `$true; `$f }" +
-                    "`nfunction Test-PtkRtkAnswers { `$true }`nfunction Update-PtkProcessPath { }" +
+                    "`nfunction Install-Fake { param(`$s) `$script:fetched = `$true; " +
+                    "if (`$$interfere) { Set-Content -LiteralPath '$target' -Value 'foreign' -NoNewline }; " +
+                    "`$f = Join-Path `$s '$leaf'; Set-Content -LiteralPath `$f -Value 'rtk' -NoNewline; `$f }" +
+                    "`nfunction Test-PtkRtkAnswers { `$true }`nfunction Update-PtkProcessPath { `$script:reachable = `$true }" +
                     "`ntry { Assert-PtkRtkConsent; Install-PtkRtk -TargetRid 'linux-x64' 6>`$null; 'installed' } catch { `$_.Exception.Message }"
                 }
                 else { "`ntry { Assert-PtkRtkConsent; 'ok' } catch { `$_.Exception.Message }" }
                 $result = & ([scriptblock]::Create(
                         "`$ptkHome = '$caseHome/.ptk'; `$rtkMarkerName = '.ptk-installed-rtk'; " +
-                        "`$rtkInstallDir = '$dir'; `$script:placedNow = `$false`n" + ($bodies -join "`n") +
-                        "`nfunction Find-PtkRtk { if (`$script:placedNow -and (Test-Path -LiteralPath '$target')) { '$target' } }" +
+                        "`$rtkInstallDir = '$dir'; `$script:reachable = `$false; `$script:fetched = `$false`n" + ($bodies -join "`n") +
+                        "`nfunction Find-PtkRtk { if (`$script:reachable -and (Test-Path -LiteralPath '$target')) { '$target' } }" +
                         "`nfunction Confirm-PtkPrerequisiteInstall { `$true }" + $run))
+                $markerPath = Join-Path $caseHome '.ptk' '.ptk-installed-rtk'
                 [pscustomobject]@{
                     Result = $result
                     Target = if (Test-Path -LiteralPath $target) { Get-Content -LiteralPath $target -Raw } else { $null }
-                    Marker = Test-Path -LiteralPath (Join-Path $caseHome '.ptk' '.ptk-installed-rtk')
+                    Marker = Test-Path -LiteralPath $markerPath
+                    MarkerHash = if (Test-Path -LiteralPath $markerPath) { ((Get-Content -LiteralPath $markerPath -Raw) -split '\r?\n')[1] } else { $null }
+                    Fetched = $script:fetched
                     Staging = @(Get-ChildItem -LiteralPath $dir -Force -Filter '.ptk-rtk-staging-*').Count
                 }
             }
+            $rtkHash = (Get-FileHash -InputStream ([IO.MemoryStream]::new([Text.Encoding]::ASCII.GetBytes('rtk'))) -Algorithm SHA256).Hash.ToLowerInvariant()
             (& $probe $false $null).Result | Should -Be 'ok'
             (& $probe $true 'ours').Result | Should -Be 'ok'
             (& $probe $true $null).Result | Should -Match 'already exists at .* not the copy this installer placed'
@@ -2065,23 +2074,75 @@ Describe 'development package layout' {
             # the same directory by identity and the same name, not a string
             # compare or a hash alone.
             (& $probe $true 'elsewhere').Result | Should -Match 'already exists at'
-            # The write boundary: a clean target is placed; a foreign rtk that
-            # appears after the consent check is never overwritten, nothing is
-            # recorded, and no staging directory is left behind.
+            # The write boundary: a clean target is placed and recorded with the
+            # staged bytes' hash; a foreign rtk that appears after the consent
+            # check is never overwritten, nothing stays recorded, and no staging
+            # directory is left behind.
             $placed = & $probe $false $null -install
             $placed.Result | Should -Be 'installed'
             $placed.Target | Should -Be 'rtk'
-            $placed.Marker | Should -BeTrue
+            $placed.Fetched | Should -BeTrue
+            $placed.MarkerHash | Should -Be $rtkHash
             $placed.Staging | Should -Be 0
             $raced = & $probe $false $null -install -interfere
             $raced.Result | Should -Match 'appeared at .* not the copy this installer placed'
             $raced.Target | Should -Be 'foreign'
             $raced.Marker | Should -BeFalse
             $raced.Staging | Should -Be 0
-            # The installer's own earlier copy is replaced in place.
+            # The installer's own earlier copy is reused as it is: nothing is
+            # fetched and nothing is deleted by name, so no replacement between
+            # a check and a delete can ever take a user's file.
             $rerun = & $probe $true 'ours' -install
             $rerun.Result | Should -Be 'installed'
-            $rerun.Marker | Should -BeTrue
+            $rerun.Fetched | Should -BeFalse
+            $rerun.Target | Should -Be 'rtk'
+            $rerun.MarkerHash | Should -Be $rtkHash
+        }
+
+        # Both fetchers deliver into the caller's staging directory and leave
+        # nothing else behind; the downloads are stubbed. A local scratch
+        # variable once shadowed the Windows fetcher's parameter (PowerShell
+        # ignores variable-name case), so the binary vanished with the scratch.
+        It 'stages the fetched rtk beside the target without touching it' {
+            $names = 'Install-PtkRtkRelease', 'Install-PtkRtkWithScript', 'Get-PtkRtkExpectedHash'
+            $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
+            $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
+            $caseHome = Join-Path $TestDrive ('rtk-fetch-' + [guid]::NewGuid().ToString('N'))
+            $fixtures = Join-Path $caseHome 'fixtures'
+            $staging = Join-Path $caseHome 'local-bin' '.ptk-rtk-staging-test'
+            New-Item -ItemType Directory -Force -Path $fixtures, $staging | Out-Null
+            # A release archive carrying rtk.exe, and its checksum line.
+            $payload = Join-Path $fixtures 'payload'
+            New-Item -ItemType Directory -Force -Path $payload | Out-Null
+            Set-Content -LiteralPath (Join-Path $payload 'rtk.exe') -Value 'fake rtk' -NoNewline
+            $asset = Join-Path $fixtures 'rtk-x86_64-pc-windows-msvc.zip'
+            Compress-Archive -LiteralPath (Join-Path $payload 'rtk.exe') -DestinationPath $asset
+            $sum = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant()
+            Set-Content -LiteralPath (Join-Path $fixtures 'checksums.txt') -Value "$sum  rtk-x86_64-pc-windows-msvc.zip"
+            # rtk's installer, standing in for the real script: it installs
+            # into RTK_INSTALL_DIR as the real one does.
+            Set-Content -LiteralPath (Join-Path $fixtures 'install.sh') -Value "mkdir -p `"`$RTK_INSTALL_DIR`" && printf rtk > `"`$RTK_INSTALL_DIR/rtk`"`n"
+            $prefix = "`$rtkReleaseBase = 'https://example.invalid/rel'; `$rtkInstallScriptUrl = 'https://example.invalid/install.sh'`n" +
+                ($bodies -join "`n") +
+                "`nfunction Invoke-WebRequest { param(`$Uri, `$OutFile, [switch]`$UseBasicParsing) " +
+                "Copy-Item -LiteralPath (Join-Path '$fixtures' (Split-Path -Leaf `$Uri)) -Destination `$OutFile }"
+            $release = & ([scriptblock]::Create($prefix + "`nInstall-PtkRtkRelease -Staging '$staging'"))
+            $release | Should -Be (Join-Path $staging 'rtk.exe')
+            Get-Content -LiteralPath $release -Raw | Should -Be 'fake rtk'
+            if (-not $IsWindows) {
+                $saved = $env:RTK_INSTALL_DIR
+                $env:RTK_INSTALL_DIR = 'elsewhere'
+                try {
+                    $script = & ([scriptblock]::Create($prefix + "`nInstall-PtkRtkWithScript -Staging '$staging' 6>`$null"))
+                    $script | Should -Be (Join-Path $staging 'rtk')
+                    Get-Content -LiteralPath $script -Raw | Should -Be 'rtk'
+                    $env:RTK_INSTALL_DIR | Should -Be 'elsewhere'
+                }
+                finally { $env:RTK_INSTALL_DIR = $saved }
+            }
+            # Only the staged binaries were written beside the target.
+            (Get-ChildItem -LiteralPath (Split-Path -Parent $staging) -Force | ForEach-Object Name) |
+                Should -Be @('.ptk-rtk-staging-test')
         }
 
         # The declared floor must be the one the code needs: the transaction

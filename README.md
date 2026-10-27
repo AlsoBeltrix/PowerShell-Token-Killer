@@ -362,7 +362,7 @@ download from `releases/download/v<VERSION>/ptk-installer.zip` and pass
 `-FromRelease -Version <VERSION>`.
 
 One installer, `scripts/install.ps1`, runs on every platform. It needs
-PowerShell 7 to run; install it from
+PowerShell 7.3 or later to run; install it from
 <https://aka.ms/powershell> (on Windows, `winget install Microsoft.PowerShell`).
 The installed ptk does not need it, and the native `ptk` commands above work
 without it. `-FromRelease` takes the latest

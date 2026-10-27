@@ -1,4 +1,7 @@
-#Requires -Version 7
+#Requires -Version 7.3
+# 7.3 is the floor the code needs, not a preference: the install transaction
+# module reads and sets Unix file modes through APIs that arrived with .NET 7
+# (PowerShell 7.3), and the rtk lookup follows links through .NET 6 ones.
 <#
 .SYNOPSIS
 The ptk installer. Installs a published release, or this checkout, into the

@@ -2035,6 +2035,19 @@ Describe 'development package layout' {
             & $probe $true 'replaced' | Should -Match 'already exists at'
         }
 
+        # The declared floor must be the one the code needs: the transaction
+        # module's Unix file-mode APIs arrived with .NET 7 (PowerShell 7.3),
+        # and the rtk lookup's link APIs with .NET 6. A looser declaration
+        # lets an older pwsh start an install that fails midway.
+        It 'declares the PowerShell floor its APIs need' {
+            $installerSource | Should -Match '^#Requires -Version 7\.3\r?\n'
+            $module = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1') -Raw
+            $module | Should -Match 'GetUnixFileMode'
+            $installerSource | Should -Match 'ResolveLinkTarget'
+            (Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md') -Raw) |
+                Should -Match 'PowerShell 7\.3 or later to run'
+        }
+
         It 'gives the PATH fix for the platform' {
             $body = & $extractFunction $installerSource 'Get-PtkRtkPathAdvice'
             $advise = {

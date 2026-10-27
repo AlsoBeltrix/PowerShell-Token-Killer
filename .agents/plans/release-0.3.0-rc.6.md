@@ -222,9 +222,20 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   stale helper or cache in a contaminated runspace), with its Windows
   Pester leg green (134/134); eighth delta, pins `9b35fd1d..45a3476b`:
   reopened (a same-name type from other source), with CI green on all
-  six jobs; the ninth delta names the helper's type for its own source
-  and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
+  six jobs; ninth delta, pins `45a3476b..961f28bd`: reopened (.NET 5
+  APIs against the declared PowerShell 7.0 floor); the tenth delta
+  declares the real floor, 7.3, which the transaction module has needed
+  since July, and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
   pending, dispatched after rr-12 resolves.
+
+## For the owner's attention (done, reversible)
+
+- The installer now declares `#Requires -Version 7.3` and the README says
+  "PowerShell 7.3 or later to run" (rr-12, tenth delta). The transaction
+  module has needed 7.3 since 2026-07-28 (`GetUnixFileMode` on every Unix
+  install), so this corrects a false declaration rather than raising a
+  requirement; 7.0 to 7.2 are out of support. Say so if a different floor
+  or wording is wanted.
 
 ## Pending owner decisions
 

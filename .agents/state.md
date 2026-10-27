@@ -36,12 +36,16 @@ gap and an unguarded loop; payload names linking outside and the probe's
 write requirement; inode-only identity, the Windows probe write and a
 hop-bound off by one; the 64-bit Windows file index; a stale helper or
 cache reused in a contaminated runspace; a same-name type from other
-source), each repaired the same day, plus one Windows CI failure of the
-compiled helper (an array of types kept); containment is now decided by
-exact read-only directory identity along every link hop (`stat` device
-and inode on Unix, volume serial and 128-bit file id on Windows, the
-helper's type named for its own source and its cache validated); CI at
-`45a3476b` green on all six jobs; verdict on the ninth delta pending),
+source; .NET 5 APIs against a declared PowerShell 7.0 floor), each
+repaired the same day, plus one Windows CI failure of the compiled
+helper (an array of types kept); containment is now decided by exact
+read-only directory identity along every link hop (`stat` device and
+inode on Unix, volume serial and 128-bit file id on Windows, the helper's
+type named for its own source and its cache validated); the installer
+now declares `#Requires -Version 7.3`, the floor its transaction module
+has needed since 2026-07-28 (`GetUnixFileMode`), and the README says
+"7.3 or later" (a contract correction the owner should know about); CI
+at `45a3476b` green on all six jobs; verdict on the tenth delta pending),
 rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
 installer's and removed on uninstall; codex verdict pending). Codex ran

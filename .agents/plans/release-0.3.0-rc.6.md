@@ -220,8 +220,10 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   assertions), and its Windows CI leg failed on the helper keeping an
   array of types; seventh delta, pins `c0a2eec0..9b35fd1d`: reopened (a
   stale helper or cache in a contaminated runspace), with its Windows
-  Pester leg green (134/134); the eighth delta versions the helper and
-  validates the cache and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
+  Pester leg green (134/134); eighth delta, pins `9b35fd1d..45a3476b`:
+  reopened (a same-name type from other source), with CI green on all
+  six jobs; the ninth delta names the helper's type for its own source
+  and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
   pending, dispatched after rr-12 resolves.
 
 ## Pending owner decisions

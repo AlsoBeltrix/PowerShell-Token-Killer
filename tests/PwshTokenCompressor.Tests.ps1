@@ -1881,17 +1881,24 @@ Describe 'development package layout' {
                             "if (-not `$IsWindows) { /bin/chmod +x '$localRtk' }; '$localRtk' }" +
                             "`nfunction Update-PtkProcessPath { }" + $run))
                 }
-                # A runspace that already holds an earlier helper, or a stale
-                # cache, must not answer with either: the helper is versioned
-                # and the cache validated. The stale type stands in for the
-                # 64-bit helper an earlier installer compiled.
+                # A runspace that already holds an earlier helper, a stale
+                # cache, or a same-shaped type under another name must not
+                # answer with any of them: the helper's name is derived from
+                # its own source, so only this implementation can carry it.
                 $null = Add-Type -Namespace PtkInstaller -Name FileIdentity -PassThru -ErrorAction SilentlyContinue `
                     -MemberDefinition 'public static string Identify(string path) { return "stale"; }'
-                $script:ptkWindowsFileIdentityType = @([object], [string])
+                $decoy = Add-Type -Namespace PtkInstaller -Name FileIdentity_0000000000000000 -PassThru `
+                    -ErrorAction SilentlyContinue `
+                    -MemberDefinition 'public static string Identify(string path) { return "decoy"; }'
+                $script:ptkWindowsFileIdentityType = $decoy | Select-Object -First 1
                 $helperType = & ([scriptblock]::Create(($bodies -join "`n") + "`nGet-PtkWindowsFileIdentityType"))
-                $helperType.FullName | Should -Be 'PtkInstaller.FileIdentity128'
+                $helperType.FullName | Should -Match '^PtkInstaller\.FileIdentity_[0-9a-f]{16}$'
+                $helperType.FullName | Should -Not -Be 'PtkInstaller.FileIdentity_0000000000000000'
                 $helperType.GetMethod('Identify') | Should -Not -BeNullOrEmpty
-                $script:ptkWindowsFileIdentityType.FullName | Should -Be 'PtkInstaller.FileIdentity128'
+                $script:ptkWindowsFileIdentityType | Should -Be $helperType
+                # The same source answers with the same name.
+                (& ([scriptblock]::Create(($bodies -join "`n") + "`nGet-PtkWindowsFileIdentityType"))).FullName |
+                    Should -Be $helperType.FullName
                 # Identity is exact and read-only: the same for the payload
                 # directory and a link to it, different for another directory.
                 $viaDir = Join-Path $caseHome 'via'

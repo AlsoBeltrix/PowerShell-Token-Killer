@@ -35,12 +35,14 @@ sensitivity, whitespace and resolver exhaustion; the case probe's identity
 gap and an unguarded loop; payload names linking outside and the probe's
 write requirement; inode-only identity, the Windows probe write and a
 hop-bound off by one; the 64-bit Windows file index; a stale helper or
-cache reused in a contaminated runspace), each repaired the same day,
-plus one Windows CI failure of the compiled helper (an array of types
-kept); containment is now decided by exact read-only directory identity
-along every link hop (`stat` device and inode on Unix, volume serial and
-128-bit file id on Windows, helper versioned and cache validated);
-verdict on the eighth delta pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
+cache reused in a contaminated runspace; a same-name type from other
+source), each repaired the same day, plus one Windows CI failure of the
+compiled helper (an array of types kept); containment is now decided by
+exact read-only directory identity along every link hop (`stat` device
+and inode on Unix, volume serial and 128-bit file id on Windows, the
+helper's type named for its own source and its cache validated); CI at
+`45a3476b` green on all six jobs; verdict on the ninth delta pending),
+rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
 installer's and removed on uninstall; codex verdict pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):
@@ -61,7 +63,7 @@ and `InvokeToolTests.Timeout_response_does_not_wait_for_the_replacement_runspace
 (windows-latest, run `40538201836` at `9b35fd1d`, 2026-10-27: saw 3
 accepted records where 2 were expected after the durable-cursor wait, in
 a 7 m 33 s suite; 10/10 locally; outside every delta of the review; the
-job was rerun for a second data point).
+next Windows run, `40541336119` at `45a3476b`, passed 1,398/1,398).
 
 **Grpc.Tools 2.85.0 for a native macOS protoc, 2026-10-26 (blanket fix
 authority):** the SIEM receiver cannot build on an Apple-silicon Mac without

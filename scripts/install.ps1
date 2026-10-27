@@ -717,16 +717,11 @@ function Test-PtkRtkAnswers {
 # serial number and 128-bit file id, exact on NTFS and ReFS alike), through
 # a handle that follows a link or junction in the final component. Fails
 # closed where the filesystem cannot answer. Compiled once per process,
-# under a name that carries the algorithm, so a runspace holding an earlier
-# helper never answers with it; the cache is validated, never trusted.
+# under a name derived from its own source, so a type of that name in this
+# process can only carry this implementation; the cache is validated,
+# never trusted.
 function Get-PtkWindowsFileIdentityType {
-    $typeName = 'PtkInstaller.FileIdentity128'
-    $cached = $script:ptkWindowsFileIdentityType
-    if ($cached -is [type] -and $cached.FullName -eq $typeName -and $cached.GetMethod('Identify')) { return $cached }
-    $type = $typeName -as [type]
-    if (-not $type) {
-        # Add-Type emits the class and its nested struct; keep the class.
-        $type = Add-Type -Namespace PtkInstaller -Name FileIdentity128 -PassThru -MemberDefinition @'
+    $source = @'
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
 public struct FileIdInfo
 {
@@ -757,7 +752,18 @@ public static string Identify(string path)
         return information.VolumeSerialNumber + ":" + information.FileIdHigh.ToString("x16") + information.FileIdLow.ToString("x16");
     }
 }
-'@ | Where-Object { $_.FullName -eq $typeName }
+'@
+    $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+            [Text.Encoding]::UTF8.GetBytes($source))).Substring(0, 16).ToLowerInvariant()
+    $name = "FileIdentity_$digest"
+    $typeName = "PtkInstaller.$name"
+    $cached = $script:ptkWindowsFileIdentityType
+    if ($cached -is [type] -and $cached.FullName -eq $typeName -and $cached.GetMethod('Identify')) { return $cached }
+    $type = $typeName -as [type]
+    if (-not $type) {
+        # Add-Type emits the class and its nested struct; keep the class.
+        $type = Add-Type -Namespace PtkInstaller -Name $name -PassThru -MemberDefinition $source |
+            Where-Object { $_.FullName -eq $typeName }
     }
     if (-not ($type -is [type]) -or -not $type.GetMethod('Identify')) {
         throw 'The Windows file identity helper is unavailable.'

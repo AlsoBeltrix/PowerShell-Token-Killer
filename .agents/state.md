@@ -34,12 +34,13 @@ it six times (configured-path precedence and link following; case
 sensitivity, whitespace and resolver exhaustion; the case probe's identity
 gap and an unguarded loop; payload names linking outside and the probe's
 write requirement; inode-only identity, the Windows probe write and a
-hop-bound off by one; the 64-bit Windows file index), each repaired the
-same day, plus one Windows CI failure of the compiled helper (an array
-of types kept); containment is now decided by exact read-only directory
-identity along every link hop (`stat` device and inode on Unix, volume
-serial and 128-bit file id on Windows); verdict on the seventh delta
-pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
+hop-bound off by one; the 64-bit Windows file index; a stale helper or
+cache reused in a contaminated runspace), each repaired the same day,
+plus one Windows CI failure of the compiled helper (an array of types
+kept); containment is now decided by exact read-only directory identity
+along every link hop (`stat` device and inode on Unix, volume serial and
+128-bit file id on Windows, helper versioned and cache validated);
+verdict on the eighth delta pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
 installer's and removed on uninstall; codex verdict pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):
@@ -51,6 +52,16 @@ bootstrap proof after publication with a stop-channel action; release
 branch deletion). Pending owner rulings: D1 version (rc.6 vs 0.3.0), D2
 rtk script source, D3 rr-11 gating, D4 channel publication versus the
 bootstrap proof. Release step 6 waits on the owner's publish go.
+
+**Intermittent tests to watch (first seen this review, none with a prior
+history):** `UnixWorkerContainmentRegistryTests.A_transient_identity_failure_does_not_release_a_live_escape`
+and `InvokeToolTests.Timeout_response_does_not_wait_for_the_replacement_runspace`
+(macOS, one loaded local run, 2026-10-26, rr-10 record) and
+`AuditDestinationS3Tests.Coordinator_applies_live_changes_and_keeps_partial_failure_independent`
+(windows-latest, run `40538201836` at `9b35fd1d`, 2026-10-27: saw 3
+accepted records where 2 were expected after the durable-cursor wait, in
+a 7 m 33 s suite; 10/10 locally; outside every delta of the review; the
+job was rerun for a second data point).
 
 **Grpc.Tools 2.85.0 for a native macOS protoc, 2026-10-26 (blanket fix
 authority):** the SIEM receiver cannot build on an Apple-silicon Mac without

@@ -716,13 +716,17 @@ function Test-PtkRtkAnswers {
 # asks the kernel for the 128-bit file identity (FileIdInfo: 64-bit volume
 # serial number and 128-bit file id, exact on NTFS and ReFS alike), through
 # a handle that follows a link or junction in the final component. Fails
-# closed where the filesystem cannot answer. Compiled once.
+# closed where the filesystem cannot answer. Compiled once per process,
+# under a name that carries the algorithm, so a runspace holding an earlier
+# helper never answers with it; the cache is validated, never trusted.
 function Get-PtkWindowsFileIdentityType {
-    if (-not $script:ptkWindowsFileIdentityType) {
-        # Add-Type emits the class and its nested struct; keep the class, and
-        # reuse it when this session already compiled it.
-        $script:ptkWindowsFileIdentityType = ('PtkInstaller.FileIdentity' -as [type]) ??
-        (Add-Type -Namespace PtkInstaller -Name FileIdentity -PassThru -MemberDefinition @'
+    $typeName = 'PtkInstaller.FileIdentity128'
+    $cached = $script:ptkWindowsFileIdentityType
+    if ($cached -is [type] -and $cached.FullName -eq $typeName -and $cached.GetMethod('Identify')) { return $cached }
+    $type = $typeName -as [type]
+    if (-not $type) {
+        # Add-Type emits the class and its nested struct; keep the class.
+        $type = Add-Type -Namespace PtkInstaller -Name FileIdentity128 -PassThru -MemberDefinition @'
 [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
 public struct FileIdInfo
 {
@@ -753,9 +757,13 @@ public static string Identify(string path)
         return information.VolumeSerialNumber + ":" + information.FileIdHigh.ToString("x16") + information.FileIdLow.ToString("x16");
     }
 }
-'@ | Where-Object { $_.Name -eq 'FileIdentity' })
+'@ | Where-Object { $_.FullName -eq $typeName }
     }
-    $script:ptkWindowsFileIdentityType
+    if (-not ($type -is [type]) -or -not $type.GetMethod('Identify')) {
+        throw 'The Windows file identity helper is unavailable.'
+    }
+    $script:ptkWindowsFileIdentityType = $type
+    $type
 }
 
 # A directory's identity, exact and read-only: device and inode from stat

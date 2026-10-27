@@ -218,8 +218,10 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   identity; Windows probe write; hop bound off by one); sixth delta, pins
   `30b7cb3a..c0a2eec0`: reopened (64-bit Windows file index; two weak
   assertions), and its Windows CI leg failed on the helper keeping an
-  array of types; the seventh delta uses the 128-bit file id and awaits
-  its verdict and its Windows CI leg (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
+  array of types; seventh delta, pins `c0a2eec0..9b35fd1d`: reopened (a
+  stale helper or cache in a contaminated runspace), with its Windows
+  Pester leg green (134/134); the eighth delta versions the helper and
+  validates the cache and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
   pending, dispatched after rr-12 resolves.
 
 ## Pending owner decisions

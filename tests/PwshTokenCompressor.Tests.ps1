@@ -1881,6 +1881,17 @@ Describe 'development package layout' {
                             "if (-not `$IsWindows) { /bin/chmod +x '$localRtk' }; '$localRtk' }" +
                             "`nfunction Update-PtkProcessPath { }" + $run))
                 }
+                # A runspace that already holds an earlier helper, or a stale
+                # cache, must not answer with either: the helper is versioned
+                # and the cache validated. The stale type stands in for the
+                # 64-bit helper an earlier installer compiled.
+                $null = Add-Type -Namespace PtkInstaller -Name FileIdentity -PassThru -ErrorAction SilentlyContinue `
+                    -MemberDefinition 'public static string Identify(string path) { return "stale"; }'
+                $script:ptkWindowsFileIdentityType = @([object], [string])
+                $helperType = & ([scriptblock]::Create(($bodies -join "`n") + "`nGet-PtkWindowsFileIdentityType"))
+                $helperType.FullName | Should -Be 'PtkInstaller.FileIdentity128'
+                $helperType.GetMethod('Identify') | Should -Not -BeNullOrEmpty
+                $script:ptkWindowsFileIdentityType.FullName | Should -Be 'PtkInstaller.FileIdentity128'
                 # Identity is exact and read-only: the same for the payload
                 # directory and a link to it, different for another directory.
                 $viaDir = Join-Path $caseHome 'via'

@@ -713,7 +713,9 @@ function Test-PtkRtkAnswers {
 
 # The path of a working rtk on PATH, or $null.
 # The path with every symbolic link (file or directory component) followed,
-# so a link outside the payload that points into it is still recognized.
+# so a link outside the payload that points into it is still recognized. A
+# chain that is still changing after the pass limit, or that loops, throws:
+# a path that cannot be resolved cannot be classified.
 function Resolve-PtkRealPath {
     param([Parameter(Mandatory)][string]$Path)
     $full = [IO.Path]::GetFullPath($Path)
@@ -730,37 +732,55 @@ function Resolve-PtkRealPath {
             }
         }
         $full = [IO.Path]::GetFullPath($current)
-        if (-not $changed) { break }
+        if (-not $changed) { return $full }
     }
-    $full
+    throw "The links under $Path could not be fully resolved after 16 passes."
+}
+
+# Whether names under $Directory compare without regard to case, asked of
+# the filesystem rather than assumed per platform: macOS volumes and Windows
+# directories can be either. Probes the last name with its letters' case
+# flipped; a name without letters falls back to the platform default.
+function Test-PtkCaseInsensitiveDirectory {
+    param([Parameter(Mandatory)][string]$Directory)
+    $leaf = Split-Path -Leaf $Directory
+    $flipped = -join ($leaf.ToCharArray() | ForEach-Object {
+            if ([char]::IsUpper($_)) { [char]::ToLowerInvariant($_) } else { [char]::ToUpperInvariant($_) } })
+    if ($flipped -ceq $leaf) { return -not $IsLinux }
+    Test-Path -LiteralPath (Join-Path (Split-Path -Parent $Directory) $flipped) -PathType Container
 }
 
 # True for a path inside the bin/ payload this installer replaces wholesale.
 # Installers before 2026-10-24 put rtk there; an upgrade deletes that copy
 # before the installed smoke test starts the server, so relying on it rolls
-# the whole install back (rr-12). Links are followed on both sides. Case is
-# ignored except on Linux: a false match only costs a redundant install
-# into $rtkInstallDir, while a miss reproduces the rollback.
+# the whole install back (rr-12). Links are followed on both sides, and case
+# matters exactly when the filesystem says it does.
 function Test-PtkPayloadRtk {
     param([Parameter(Mandatory)][string]$Path)
-    $payloadBin = [IO.Path]::TrimEndingDirectorySeparator((Resolve-PtkRealPath -Path (Join-Path $ptkHome 'bin')))
-    $comparison = if ($IsLinux) { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
-    (Resolve-PtkRealPath -Path $Path).StartsWith($payloadBin + [IO.Path]::DirectorySeparatorChar, $comparison)
+    $payloadBin = Join-Path $ptkHome 'bin'
+    if (-not (Test-Path -LiteralPath $payloadBin -PathType Container)) { return $false }
+    $payloadReal = [IO.Path]::TrimEndingDirectorySeparator((Resolve-PtkRealPath -Path $payloadBin))
+    $comparison = if (Test-PtkCaseInsensitiveDirectory -Directory $payloadReal) {
+        [StringComparison]::OrdinalIgnoreCase
+    }
+    else { [StringComparison]::Ordinal }
+    (Resolve-PtkRealPath -Path $Path).StartsWith($payloadReal + [IO.Path]::DirectorySeparatorChar, $comparison)
 }
 
-# Resolves rtk as the server does (RtkDependency): PTK_RTK_PATH, when set, is
-# the only candidate, with no PATH fallback; otherwise the first rtk on PATH.
-# Anything inside the payload is never a candidate.
+# Resolves rtk as the server does (RtkDependency): PTK_RTK_PATH, when set to
+# more than whitespace, is the only candidate, with no PATH fallback;
+# otherwise the first rtk on PATH. Anything inside the payload, or that
+# cannot be resolved, is never a candidate.
 function Find-PtkRtk {
-    if ($env:PTK_RTK_PATH) {
+    if (-not [string]::IsNullOrWhiteSpace($env:PTK_RTK_PATH)) {
         $configured = $env:PTK_RTK_PATH
-        if (-not (Test-PtkPayloadRtk -Path $configured) -and
-            (Test-Path -LiteralPath $configured -PathType Leaf) -and
+        try { if (Test-PtkPayloadRtk -Path $configured) { return $null } } catch { return $null }
+        if ((Test-Path -LiteralPath $configured -PathType Leaf) -and
             (Test-PtkRtkAnswers -Path $configured)) { return $configured }
         return $null
     }
     foreach ($candidate in @(Get-Command rtk -All -CommandType Application -ErrorAction SilentlyContinue)) {
-        if (Test-PtkPayloadRtk -Path $candidate.Source) { continue }
+        try { if (Test-PtkPayloadRtk -Path $candidate.Source) { continue } } catch { continue }
         if (Test-PtkRtkAnswers -Path $candidate.Source) { return $candidate.Source }
     }
     $null
@@ -770,12 +790,15 @@ function Find-PtkRtk {
 # what this installer places elsewhere, so it is refused before any question.
 function Assert-PtkRtkPathUsable {
     $configured = $env:PTK_RTK_PATH
-    if (-not $configured) { return }
-    $why = if (Test-PtkPayloadRtk -Path $configured) {
-        "is inside the ptk payload ($ptkHome/bin) that this install replaces"
+    if ([string]::IsNullOrWhiteSpace($configured)) { return }
+    $why = try {
+        if (Test-PtkPayloadRtk -Path $configured) {
+            "is inside the ptk payload ($ptkHome/bin) that this install replaces"
+        }
+        elseif (-not (Test-Path -LiteralPath $configured -PathType Leaf)) { 'does not exist' }
+        elseif (-not (Test-PtkRtkAnswers -Path $configured)) { "does not answer 'rtk rewrite'" }
     }
-    elseif (-not (Test-Path -LiteralPath $configured -PathType Leaf)) { 'does not exist' }
-    elseif (-not (Test-PtkRtkAnswers -Path $configured)) { "does not answer 'rtk rewrite'" }
+    catch { "cannot be resolved ($($_.Exception.Message))" }
     if (-not $why) { return }
     throw ("PTK_RTK_PATH is set to $configured, which $why. ptk uses only PTK_RTK_PATH when it is set, " +
         'so installing rtk elsewhere would not help. Unset it, or point it at a working rtk outside ' +

@@ -1784,7 +1784,8 @@ Describe 'development package layout' {
         # put rtk in ~/.ptk/bin, which the server never searches, and only
         # after the smoke tests had already started a server without it.
         It 'installs rtk where PATH can reach it, records it, and stops with advice when it cannot' {
-            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk', 'Resolve-PtkRealPath'
+            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk', 'Resolve-PtkRealPath',
+                'Test-PtkCaseInsensitiveDirectory'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $probe = {
@@ -1828,7 +1829,8 @@ Describe 'development package layout' {
         # The server takes PTK_RTK_PATH alone when it is set, so the installer
         # resolves the same way and refuses a configured path it cannot use.
         It 'never relies on an rtk inside the payload it replaces' {
-            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Resolve-PtkRealPath', 'Assert-PtkRtkPathUsable'
+            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Resolve-PtkRealPath', 'Assert-PtkRtkPathUsable',
+                'Test-PtkCaseInsensitiveDirectory'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $caseHome = Join-Path $TestDrive ('rtk-payload-' + [guid]::NewGuid().ToString('N'))
@@ -1869,6 +1871,14 @@ Describe 'development package layout' {
                 & $probe @($otherBin) $payloadRtk | Should -Match 'refused: PTK_RTK_PATH is set to .* inside the ptk payload'
                 & $probe @($otherBin) (Join-Path $emptyBin $rtkName) | Should -Match 'refused: .* does not exist'
                 & $probe @($otherBin) $mute | Should -Match "refused: .* does not answer 'rtk rewrite'"
+                # Whitespace is unset, as the server reads it: PATH is searched.
+                & $probe @($otherBin) '  ' | Should -Be $otherRtk
+                # Case matters exactly when the filesystem says so: the probe
+                # answers for this volume, and a differently-cased spelling of
+                # the payload directory is contained wherever it resolves.
+                & ([scriptblock]::Create(($bodies -join "`n") +
+                        "`nTest-PtkCaseInsensitiveDirectory -Directory '$payloadBin'")) | Should -Be (-not $IsLinux)
+                & $probe @((Join-Path $caseHome '.PTK' 'BIN')) $null | Should -Be 'none'
                 if (-not $IsWindows) {
                     # A link outside the payload that points into it is the
                     # payload copy under another name.
@@ -1877,6 +1887,21 @@ Describe 'development package layout' {
                     New-Item -ItemType SymbolicLink -Path (Join-Path $linkDir $rtkName) -Target $payloadRtk | Out-Null
                     & $probe @($linkDir) $null | Should -Be 'none'
                     & $probe @($otherBin) (Join-Path $linkDir $rtkName) | Should -Match 'refused: .* inside the ptk payload'
+                    # A directory link whose target itself passes through
+                    # another link needs more than one resolution pass.
+                    $viaDir = Join-Path $caseHome 'via'
+                    New-Item -ItemType SymbolicLink -Path $viaDir -Target $payloadBin | Out-Null
+                    $twoHop = Join-Path $caseHome 'two-hop'
+                    New-Item -ItemType SymbolicLink -Path $twoHop -Target (Join-Path $caseHome 'via') | Out-Null
+                    & $probe @($twoHop) $null | Should -Be 'none'
+                    # A looping link cannot be classified: skipped on PATH,
+                    # refused when configured.
+                    $loopDir = Join-Path $caseHome 'loop-bin'
+                    New-Item -ItemType Directory -Force -Path $loopDir | Out-Null
+                    $loop = Join-Path $loopDir $rtkName
+                    New-Item -ItemType SymbolicLink -Path $loop -Target $loop | Out-Null
+                    & $probe @($loopDir, $otherBin) $null | Should -Be $otherRtk
+                    & $probe @($otherBin) $loop | Should -Match 'refused: .* cannot be resolved'
                 }
             }
             finally {

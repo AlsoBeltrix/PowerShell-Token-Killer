@@ -201,8 +201,9 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   interval); repair verdict, pins `fc240a2e..dc85fcf5`: accepted
   (`.agents/review/findings/rr-10.md`).
 - rr-12 verdict, pins `dc85fcf5..23e11dbc`: reopened (configured-path
-  precedence; link following); repair verdict pending on the follow-up
-  commit (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
+  precedence; link following); repair verdict, pins `e44b3df6..b2db2dab`:
+  reopened (filesystem case sensitivity, whitespace-only value, resolver
+  exhaustion); the third delta's verdict is pending (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
   pending, dispatched after rr-12 resolves.
 
 ## Pending owner decisions

@@ -7,7 +7,9 @@ short and update it when important repo facts change.
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
 auditing or SIEM; their code is to be removed under
-`.agents/plans/audit-siem-removal.md` (decision in `.agents/decisions.md`).
+`.agents/plans/audit-siem-removal.md` (decision in `.agents/decisions.md`;
+plan drafted 2026-10-27 on `NETWATCH-01`, awaiting owner approval and
+rulings R1–R3; implementation happens on another box).
 Audit/SIEM-only failures, findings and flaky tests are recorded, not
 repaired. The enterprise security question is closed too
 (`.agents/plans/security-layer.md`). PTK's remaining use is the owner's

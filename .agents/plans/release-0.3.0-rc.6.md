@@ -1,13 +1,16 @@
 # Plan: release 0.3.0-rc.6 — `install.ps1 -FromRelease` with the rtk fix
 
-**Status:** REVIEWED 2026-10-27. Codex reviewed the delta and this plan
-(dispatch records below). rr-10 closed (codex accepted the repair); rr-12
-and rr-13 (from the codex change review) fixed on `master`, verdicts
-pending; rr-9 and rr-11 open. The rr-9 route proof still needs an owner go
-(auto mode refuses to execute the external installer script). Owner rulings
-D1–D4 pending, each with the reviewer's recommendation. Steps 1–5 precede
-tagging; step 6 needs the owner's publish go, since publishing is an owner
-action; step 7 is post-release maintenance.
+**Status:** REVIEWED 2026-10-27, findings resolved. Codex reviewed the delta
+and this plan (dispatch records below). rr-10, rr-12 and rr-13 are closed
+(codex accepted each after its reopens); rr-9 and rr-11 stay open. The
+rr-9 route proof is scripted for the owner to run, since auto mode
+refuses to execute the external installer script even on the owner's go:
+`scratchpad/rr9-route/run.sh` of session `315c7d81`, two runs into a
+throwaway home (run A: rtk fetched by its own script, then the PATH
+advice; run B: full rc.5 install with that directory on `PATH`). Owner
+rulings D1–D4 pending, each with the reviewer's recommendation. Steps 1–5
+precede tagging; step 6 needs the owner's publish go, since publishing is
+an owner action; step 7 is post-release maintenance.
 
 ## Goal
 

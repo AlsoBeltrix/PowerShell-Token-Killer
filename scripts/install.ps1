@@ -1094,13 +1094,29 @@ function Remove-PtkInstalledRtk {
     # The path, then (since 2026-10-24) its SHA-256; older markers name a
     # copy inside ~/.ptk/bin and carry no hash.
     $ours, $hash = @((Get-Content -LiteralPath $marker -Raw).Trim() -split '\r?\n')
-    if ($ours -and (Test-Path -LiteralPath $ours)) {
-        $current = (Get-FileHash -LiteralPath $ours -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($ours -and (Test-Path -LiteralPath $ours -PathType Leaf)) {
+        # Verified and removed under a private name, so the file deleted is
+        # the file verified: whatever a racing replacement puts at the path
+        # is set aside for a moment and put back, never deleted (rr-13).
+        $aside = Join-Path (Split-Path -Parent $ours) ('.ptk-rtk-removing-' + [guid]::NewGuid().ToString('N'))
+        try { [IO.File]::Move($ours, $aside, $false) }
+        catch {
+            Write-Host "Kept ${ours}: it could not be set aside to verify it ($($_.Exception.Message))."
+            Remove-Item -LiteralPath $marker -Force
+            return
+        }
+        $current = (Get-FileHash -LiteralPath $aside -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($hash -and $current -cne $hash) {
-            Write-Host "Kept ${ours}: it is no longer the rtk this installer placed."
+            try {
+                [IO.File]::Move($aside, $ours, $false)
+                Write-Host "Kept ${ours}: it is no longer the rtk this installer placed."
+            }
+            catch {
+                Write-Host "Kept $aside (set aside from ${ours}, whose name was taken meanwhile): it is not the rtk this installer placed."
+            }
         }
         else {
-            Remove-Item -LiteralPath $ours -Force
+            Remove-Item -LiteralPath $aside -Force
             Write-Host "Removed the rtk this installer placed: $ours"
         }
     }

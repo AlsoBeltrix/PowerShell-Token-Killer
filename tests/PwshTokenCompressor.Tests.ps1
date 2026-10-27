@@ -2197,7 +2197,11 @@ Describe 'development package layout' {
                         "`nRemove-PtkInstalledRtk 6>`$null"))
                 [pscustomobject]@{
                     CopyKept = Test-Path -LiteralPath $copy
+                    CopyContent = if (Test-Path -LiteralPath $copy) { Get-Content -LiteralPath $copy -Raw } else { $null }
                     MarkerKept = Test-Path -LiteralPath (Join-Path $caseHome '.ptk-installed-rtk')
+                    # The file is verified and removed under a private name, so
+                    # the file deleted is the file verified; nothing may linger.
+                    SetAside = @(Get-ChildItem -LiteralPath $caseHome -Force -Filter '.ptk-rtk-removing-*').Count
                 }
             }
             $placedHash = [Convert]::ToHexString(
@@ -2205,9 +2209,15 @@ Describe 'development package layout' {
             $same = & $probe $placedHash 'placed'
             $same.CopyKept | Should -BeFalse
             $same.MarkerKept | Should -BeFalse
-            (& $probe $placedHash 'the user''s own rtk').CopyKept | Should -BeTrue
+            $same.SetAside | Should -Be 0
+            $replaced = & $probe $placedHash 'the user''s own rtk'
+            $replaced.CopyKept | Should -BeTrue
+            $replaced.CopyContent | Should -Be 'the user''s own rtk'
+            $replaced.MarkerKept | Should -BeFalse
+            $replaced.SetAside | Should -Be 0
             # Markers before 2026-10-24 carry no hash and name a copy in ~/.ptk/bin.
             (& $probe '' 'legacy').CopyKept | Should -BeFalse
+            $installerSource | Should -Not -Match 'Remove-Item -LiteralPath \$ours'
         }
 
         It 'refuses a missing toolchain with the install command and the release fallback' {

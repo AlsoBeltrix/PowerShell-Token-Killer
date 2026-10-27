@@ -9,11 +9,11 @@ question; guard added. Codex verdict pending. See
 
 ## rr-10 zero-length audit quota control under concurrent start (2026-10-26)
 
-Fixed on `master` in two commits: atomic publication of the complete control
-(`0d498d7d`), then, after codex reopened it for the POSIX two-link publish
-interval, the creator's exclusive handle is held across the publish so
-acquirers meet lock contention and retry. Three guards; verdict on the
-repair delta pending. See `.agents/review/findings/rr-10.md`.
+Closed: atomic publication of the complete control (`0d498d7d`), then, after
+codex reopened it for the POSIX two-link publish interval, the creator's
+exclusive handle is held across the publish so acquirers meet lock
+contention and retry (`dc85fcf5`, codex accepted). Three guards. See
+`.agents/review/findings/rr-10.md`.
 
 ## rr-9 rtk installer script fetched unpinned (2026-10-26)
 

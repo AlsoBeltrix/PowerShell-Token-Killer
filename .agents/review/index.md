@@ -40,8 +40,9 @@ codex accepted). See `.agents/review/findings/rr-10.md`.
 
 ## rr-9 rtk installer script fetched unpinned (2026-10-26)
 
-Open: awaiting owner ruling D2 and the live route proof (needs an owner go
-to execute the external script). See `.agents/review/findings/rr-9.md`.
+Closed by ruling D2 (2026-10-27): no third-party script on any platform;
+the installer downloads and verifies rtk's release archive itself, tested
+with fixtures of both archive kinds. See `.agents/review/findings/rr-9.md`.
 
 ## rr-11 macOS slow-seal elapsed recurrence (2026-10-26)
 

@@ -2,9 +2,14 @@
 
 **Severity:** MEDIUM — supply-chain and availability exposure on every Linux
 or macOS install that lacks rtk.
-**Status:** OPEN — awaiting owner ruling D2 (pin to a tag with a recorded
-hash, or keep following `master`); the live route proof is pending an
-owner go, because auto mode refused to execute the external script.
+**Status:** CLOSED 2026-10-27 by the owner's ruling D2: the installer no
+longer fetches or runs rtk's script on any platform; it downloads the
+platform's archive from rtk's latest release, verifies it against the
+release's `checksums.txt`, and places the binary itself, the same path
+Windows already used. The fetcher is tested with fixture archives of both
+kinds on every platform, and the source is pinned to contain no
+`install.sh` reference. The live `-FromRelease` bootstrap proof moves to the
+next release's post-publication step (D4).
 **Scope:** `scripts/install.ps1` (`Install-PtkRtkWithScript`).
 
 Since `406aab47` (2026-10-24, owner direction "rtk goes where its own

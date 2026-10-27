@@ -141,6 +141,15 @@ Why: the previous destination, `~/.ptk/bin`, is on neither path the server
 searches, so an installer-fetched rtk could never be found (found on
 `NETWATCH-01`, 2026-10-24; see `.agents/release-candidate-0.3.0-rc.5.md`).
 
+**Amended 2026-10-27 (owner ruling D2, rr-9):** no third-party script runs
+on any platform. The destination stands; the mechanism is the direct
+download on every platform: the installer fetches the platform's archive
+from rtk's latest release, verifies it against the release's
+`checksums.txt`, and places the binary in `$RTK_INSTALL_DIR`. The Linux and
+macOS `install.sh` route (fetched unpinned from rtk's non-default `master`)
+is gone. Offered alternatives, declined: pinning the script to a release tag
+with a recorded hash; keeping `master`.
+
 ### ACTIVE (2026-10-23): Windows release assets ship without a publisher signature
 
 **Status:** Active — the owner chose this ("1.") after the Azure Trusted

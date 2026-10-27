@@ -397,10 +397,10 @@ The installer:
   activation or registration failure;
 - **ensures RTK is present before anything else.** RTK is required, so an
   rtk already on `PATH` is used as-is, and otherwise, with your agreement, it
-  is installed where RTK's own installer puts it, `~/.local/bin` (or
-  `$RTK_INSTALL_DIR`): on Linux and macOS by running RTK's `install.sh`, and
-  on Windows, which RTK ships no installer for, by downloading its latest
-  release, verifying it against `checksums.txt`, and placing `rtk.exe` there.
+  is installed where RTK's own installer would put it, `~/.local/bin` (or
+  `$RTK_INSTALL_DIR`): the installer downloads RTK's latest release archive
+  for your platform, verifies it against the release's `checksums.txt`, and
+  places the binary there. No third-party script runs.
   If that directory is not on `PATH`, the install stops before registering
   anything and tells you how to add it. Uninstall removes only that copy, and
   only while it is unchanged. The check probes `rtk rewrite`, not
@@ -557,18 +557,18 @@ silently-unfiltered passthrough.
 
 PTK's release assets do not bundle RTK. The installer resolves it for you: an
 rtk already on `PATH` is used as-is and never touched, and otherwise RTK goes
-into `~/.local/bin`, where RTK's own installer puts it — on Linux and macOS
-RTK's `install.sh` runs, and on Windows the latest release is downloaded,
-verified against its `checksums.txt`, and placed there. That directory must be
+into `~/.local/bin`, where RTK's own installer would put it: the latest
+release archive for your platform is downloaded, verified against its
+`checksums.txt`, and the binary placed there. That directory must be
 on `PATH`; if it is not, the installer says how to add it and stops.
 Uninstall removes only a copy the installer placed. Windows ARM64 has no
 upstream aarch64 rtk and runs the x64 build under emulation; the installer
 probes `rtk rewrite` to confirm that actually works before completing.
 
-RTK's default downloads, which both RTK's installer and PTK's fetch, include
-an engine licensed BUSL-1.1; the `rtk-oss` edition is the Apache-2.0-only
-build. To use it instead, install it yourself before running PTK's installer
-(for example `curl -fsSL …/install.sh | RTK_EDITION=oss sh`).
+RTK's default downloads, which PTK fetches, include an engine licensed
+BUSL-1.1; the `rtk-oss` edition is the Apache-2.0-only build. To use it
+instead, install it yourself so `rtk` is on `PATH` before running PTK's
+installer.
 
 Routing is RTK's decision, not PTK's. PTK submits the exact submitted text to
 `rtk rewrite`, the entry point RTK documents for integrations; when RTK returns

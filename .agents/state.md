@@ -12,8 +12,8 @@ everything around it stays untouched; existing `~/.ptk/audit` data is left
 alone; rc.6 as reviewed is dropped, the removal lands first and the next
 release (`0.3.0-rc.6` by delegation) carries both; the installer downloads
 rtk's release archive directly on every platform (no third-party script;
-reverses the 2026-10-24 mechanism, destination unchanged); rr-11 does not
-gate. Recorded in `.agents/decisions.md` (2026-10-27 amendment), the
+reverses the 2026-10-24 mechanism, destination unchanged; closes rr-9);
+rr-11 does not gate. Recorded in `.agents/decisions.md` (2026-10-27 amendment), the
 removal plan (approved, narrowed) and the rc.6 plan (superseded). Next: the
 direct-download installer change, then removal slices 1 and 2, then the
 release.

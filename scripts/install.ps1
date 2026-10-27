@@ -26,10 +26,11 @@ touched except by -Purge.
 
 rtk is a required dependency: the server exits 78 without one, and finds it
 only on PATH or through PTK_RTK_PATH. An rtk already on PATH is used as-is;
-otherwise, once the user agrees, rtk goes into ~/.local/bin (or
-$RTK_INSTALL_DIR) as its own installer would put it: rtk's install.sh runs on
-Linux and macOS, and on Windows the latest release is checksum-verified and
-placed there. It is recorded so uninstall removes only that copy. If that
+otherwise, once the user agrees, the latest rtk release archive for this
+platform is downloaded, checksum-verified and its binary placed in
+~/.local/bin (or $RTK_INSTALL_DIR), where rtk's own installer would put it;
+no third-party script runs. It is recorded so uninstall removes only that
+copy. If that
 directory is not on PATH, the install stops before registering anything and
 says how to add it.
 
@@ -686,17 +687,17 @@ function Assert-PtkDotnetSdk {
 # --- rtk -------------------------------------------------------------------
 # rtk is a required dependency: the server exits 78 without one, and finds it
 # only through PTK_RTK_PATH or PATH. An rtk the user already has is used as-is
-# and never touched. Otherwise, with the user's agreement, rtk goes where its
-# own installer puts it (owner, 2026-10-24): on Linux and macOS rtk's
-# install.sh runs and installs it; on Windows, which rtk ships no installer
-# for, the latest release zip is checksum-verified and rtk.exe placed the way
-# rtk's manual instructions say. Both land in $RTK_INSTALL_DIR, default
-# ~/.local/bin. The copy is recorded so uninstall removes only that one.
+# and never touched. Otherwise, with the user's agreement, the latest rtk
+# release archive for this platform is downloaded from rtk-ai/rtk, verified
+# against the release's checksums.txt, and its binary placed where rtk's own
+# installer would put it, $RTK_INSTALL_DIR, default ~/.local/bin (owner,
+# 2026-10-24 for the destination; 2026-10-27 for the mechanism: no
+# third-party script runs on any platform, rr-9). The copy is recorded so
+# uninstall removes only that one.
 
 # Absolute, so the marker names one file whatever a later run's working
 # directory is (rr-13).
 $rtkInstallDir = [IO.Path]::GetFullPath(($env:RTK_INSTALL_DIR ? $env:RTK_INSTALL_DIR : (Join-Path $HOME '.local' 'bin')))
-$rtkInstallScriptUrl = 'https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh'
 $rtkReleaseBase = 'https://github.com/rtk-ai/rtk/releases/latest/download'
 
 function Test-PtkRtkAnswers {
@@ -907,8 +908,7 @@ function Test-PtkInstalledRtk {
 function Assert-PtkRtkConsent {
     if (Find-PtkRtk) { return }
     Assert-PtkRtkTargetFree
-    $how = if ($IsWindows) { "Download the latest release from github.com/rtk-ai/rtk into $rtkInstallDir" }
-    else { "Run rtk's installer (install.sh from github.com/rtk-ai/rtk), which installs it into $rtkInstallDir" }
+    $how = "Download rtk's latest release from github.com/rtk-ai/rtk into $rtkInstallDir"
     $question = "rtk (required) is not on PATH. $how?"
     if (Confirm-PtkPrerequisiteInstall -Question $question) { return }
     throw ('rtk is required and was not installed. Install rtk (https://github.com/rtk-ai/rtk) ' +
@@ -929,12 +929,33 @@ function Get-PtkRtkExpectedHash {
     ($line -split '\s+')[0].ToLowerInvariant()
 }
 
-# Windows: rtk publishes no aarch64 build, so ARM64 gets the x64 one, which
-# runs under emulation and is probed like any other. The binary lands in the
-# caller's staging directory; the caller places it.
+# One asset per RID from rtk's latest release. Windows: rtk publishes no
+# aarch64 build, so ARM64 gets the x64 one, which runs under emulation and is
+# probed like any other.
+function Get-PtkRtkAssetName {
+    param([Parameter(Mandatory)][string]$TargetRid)
+    switch ($TargetRid) {
+        'win-x64' { 'rtk-x86_64-pc-windows-msvc.zip' }
+        'win-arm64' { 'rtk-x86_64-pc-windows-msvc.zip' }
+        'linux-x64' { 'rtk-x86_64-unknown-linux-musl.tar.gz' }
+        'linux-arm64' { 'rtk-aarch64-unknown-linux-gnu.tar.gz' }
+        'osx-arm64' { 'rtk-aarch64-apple-darwin.tar.gz' }
+        default { throw "No rtk asset mapping for RID '$TargetRid'." }
+    }
+}
+
+# Downloads the release archive for the platform, verifies it against the
+# release's checksums.txt, and extracts the binary into the caller's staging
+# directory; the caller places it. No third-party script runs on any
+# platform (owner, 2026-10-27).
 function Install-PtkRtkRelease {
-    param([Parameter(Mandatory)][string]$Staging)
-    $asset = 'rtk-x86_64-pc-windows-msvc.zip'
+    param(
+        [Parameter(Mandatory)][string]$Staging,
+        [Parameter(Mandatory)][string]$TargetRid
+    )
+    $asset = Get-PtkRtkAssetName -TargetRid $TargetRid
+    $isZip = $asset.EndsWith('.zip')
+    $binaryName = $isZip ? 'rtk.exe' : 'rtk'
     # Download scratch, distinct from $Staging: PowerShell variable names
     # ignore case, so a local named like the parameter would replace it.
     $scratch = Join-Path ([IO.Path]::GetTempPath()) ("ptk-rtk-{0}" -f ([guid]::NewGuid()))
@@ -949,38 +970,30 @@ function Install-PtkRtkRelease {
         if ($expected -ne $actual) { throw "Checksum mismatch for $asset; refusing to install it." }
 
         $extracted = Join-Path $scratch 'x'
-        Expand-Archive -LiteralPath $archive -DestinationPath $extracted -Force
-        $found = Get-ChildItem -LiteralPath $extracted -Filter 'rtk.exe' -Recurse -File |
+        New-Item -ItemType Directory -Path $extracted -Force | Out-Null
+        if ($isZip) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $extracted -Force
+        }
+        else {
+            # Absolute where it exists, since callers may run with a replaced PATH.
+            $tar = @('/usr/bin/tar', '/bin/tar') | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+                Select-Object -First 1
+            if (-not $tar) { $tar = (Get-Command tar -CommandType Application -ErrorAction Stop).Source }
+            & $tar -xzf $archive -C $extracted
+            if ($LASTEXITCODE -ne 0) { throw "tar failed to extract $asset." }
+        }
+        $found = Get-ChildItem -LiteralPath $extracted -Filter $binaryName -Recurse -File |
             Select-Object -First 1
-        if (-not $found) { throw 'rtk archive did not contain rtk.exe.' }
+        if (-not $found) { throw "rtk archive did not contain $binaryName." }
 
-        $stagedBinary = Join-Path $Staging 'rtk.exe'
+        $stagedBinary = Join-Path $Staging $binaryName
         Copy-Item -LiteralPath $found.FullName -Destination $stagedBinary
+        if (-not $isZip -and -not $IsWindows) { /bin/chmod +x $stagedBinary }
         $stagedBinary
     }
     finally {
         Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
     }
-}
-
-# Linux and macOS: rtk installs itself. install.sh reads RTK_INSTALL_DIR from
-# the environment this child inherits, pointed at the caller's staging
-# directory; the caller places the binary.
-function Install-PtkRtkWithScript {
-    param([Parameter(Mandatory)][string]$Staging)
-    $script = Join-Path ([IO.Path]::GetTempPath()) ("ptk-rtk-install-{0}.sh" -f ([guid]::NewGuid()))
-    $savedInstallDir = $env:RTK_INSTALL_DIR
-    try {
-        Invoke-WebRequest -UseBasicParsing -Uri $rtkInstallScriptUrl -OutFile $script
-        $env:RTK_INSTALL_DIR = $Staging
-        sh $script | Out-Host
-        if ($LASTEXITCODE -ne 0) { throw "rtk's installer failed with exit code $LASTEXITCODE." }
-    }
-    finally {
-        $env:RTK_INSTALL_DIR = $savedInstallDir
-        Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue
-    }
-    Join-Path $Staging 'rtk'
 }
 
 # This process inherited PATH when it started; a directory the user has since
@@ -1054,7 +1067,7 @@ function Install-PtkRtk {
         $staging = Join-Path $rtkInstallDir ('.ptk-rtk-staging-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $staging | Out-Null
         try {
-            $staged = if ($IsWindows) { Install-PtkRtkRelease -Staging $staging } else { Install-PtkRtkWithScript -Staging $staging }
+            $staged = Install-PtkRtkRelease -Staging $staging -TargetRid $TargetRid
             if (-not (Test-Path -LiteralPath $staged -PathType Leaf)) {
                 throw "rtk's installer finished, but $staged does not exist."
             }

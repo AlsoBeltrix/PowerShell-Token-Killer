@@ -9,12 +9,13 @@ pending. See `.agents/review/findings/rr-13.md`.
 
 ## rr-12 payload-resident rtk accepted, then deleted by the upgrade (2026-10-27)
 
-Fixed on `master` in three commits: the rtk lookup skips the payload
-(`~/.ptk/bin`, links followed, case sensitivity asked of the filesystem)
-and resolves `PTK_RTK_PATH` exactly as the server does (configured path
-only, whitespace unset, refused before any question when unusable), after
-two codex reopens. Verdict on the third delta pending. See
-`.agents/review/findings/rr-12.md`.
+Fixed on `master` in four commits: the rtk lookup skips the payload
+(`~/.ptk/bin`, decided by identity: a probe file in the payload directory
+visible through the candidate's directory, so links, junctions and case
+all count) and resolves `PTK_RTK_PATH` exactly as the server does
+(configured path only, whitespace unset, refused before any question when
+unusable), after three codex reopens. Verdict on the fourth delta pending.
+See `.agents/review/findings/rr-12.md`.
 
 ## rr-10 zero-length audit quota control under concurrent start (2026-10-26)
 

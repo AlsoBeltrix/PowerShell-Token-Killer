@@ -28,9 +28,11 @@ recurrence; diagnosis reopened per the closed plan; ruling D3), rr-12
 (MEDIUM, from the codex change review, fixed 2026-10-27: the installer
 accepted an rtk inside `~/.ptk/bin`, the payload the upgrade then deletes,
 and would also have left a `PTK_RTK_PATH` pointing there; codex reopened
-it twice, for configured-path precedence and link following, then for
-case sensitivity, whitespace and resolver exhaustion, each repaired the
-same day, verdict on the third delta pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
+it three times (configured-path precedence and link following; case
+sensitivity, whitespace and resolver exhaustion; the case probe's identity
+gap and an unguarded loop), each repaired the same day; containment is now
+decided by a probe file's visibility rather than spelling; verdict on the
+fourth delta pending), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
 installer's and removed on uninstall; codex verdict pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):

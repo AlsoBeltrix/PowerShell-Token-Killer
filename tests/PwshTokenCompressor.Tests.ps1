@@ -1784,8 +1784,7 @@ Describe 'development package layout' {
         # put rtk in ~/.ptk/bin, which the server never searches, and only
         # after the smoke tests had already started a server without it.
         It 'installs rtk where PATH can reach it, records it, and stops with advice when it cannot' {
-            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk', 'Resolve-PtkRealPath',
-                'Test-PtkCaseInsensitiveDirectory'
+            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $probe = {
@@ -1828,39 +1827,58 @@ Describe 'development package layout' {
         # installed smoke test starts the server, and the install rolls back.
         # The server takes PTK_RTK_PATH alone when it is set, so the installer
         # resolves the same way and refuses a configured path it cannot use.
+        # Containment is decided by identity, so every spelling, link or
+        # junction of the payload directory counts.
         It 'never relies on an rtk inside the payload it replaces' {
-            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Resolve-PtkRealPath', 'Assert-PtkRtkPathUsable',
-                'Test-PtkCaseInsensitiveDirectory'
+            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Assert-PtkRtkPathUsable',
+                'Install-PtkRtk', 'Get-PtkRtkPathAdvice'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $caseHome = Join-Path $TestDrive ('rtk-payload-' + [guid]::NewGuid().ToString('N'))
             $payloadBin = Join-Path $caseHome '.ptk' 'bin'
             $otherBin = Join-Path $caseHome 'other-bin'
             $emptyBin = Join-Path $caseHome 'empty-bin'
+            $localBin = Join-Path $caseHome 'local-bin'
             $rtkName = if ($IsWindows) { 'rtk.cmd' } else { 'rtk' }
-            foreach ($dir in $payloadBin, $otherBin) {
+            $placeRtk = {
+                param($dir)
                 New-Item -ItemType Directory -Force -Path $dir | Out-Null
                 $file = Join-Path $dir $rtkName
                 Set-Content -LiteralPath $file -Value ($IsWindows ? '@echo off' : '#!/bin/sh')
-                if (-not $IsWindows) { chmod +x $file }
+                # Absolute: the probes below replace PATH.
+                if (-not $IsWindows) { /bin/chmod +x $file }
+                $file
             }
+            $payloadRtk = & $placeRtk $payloadBin
+            $otherRtk = & $placeRtk $otherBin
             New-Item -ItemType Directory -Force -Path $emptyBin | Out-Null
             # A copy that exists but does not answer the rewrite probe.
             $mute = Join-Path $otherBin 'mute-rtk'
             Set-Content -LiteralPath $mute -Value 'x'
-            $payloadRtk = Join-Path $payloadBin $rtkName
-            $otherRtk = Join-Path $otherBin $rtkName
+            $localRtk = Join-Path $localBin $rtkName
             $savedPath, $savedRtk = $env:PATH, $env:PTK_RTK_PATH
             try {
                 $probe = {
-                    param([string[]]$dirs, $configured)
+                    param([string[]]$dirs, $configured, [switch]$install)
                     $env:PATH = $dirs -join [IO.Path]::PathSeparator
                     $env:PTK_RTK_PATH = $configured
+                    $run = if ($install) {
+                        "`ntry { Install-PtkRtk -TargetRid 'linux-x64' 6>`$null; 'installed' } catch { 'refused: ' + `$_.Exception.Message }"
+                    }
+                    else {
+                        "`ntry { Assert-PtkRtkPathUsable; `$found = Find-PtkRtk; " +
+                        "if (`$found) { `$found } else { 'none' } } catch { 'refused: ' + `$_.Exception.Message }"
+                    }
                     & ([scriptblock]::Create(
-                            "`$ptkHome = '$caseHome/.ptk'`n" + ($bodies -join "`n") +
+                            "`$ptkHome = '$caseHome/.ptk'; `$rtkMarkerName = '.ptk-installed-rtk'; " +
+                            "`$rtkInstallDir = '$localBin'`n" + ($bodies -join "`n") +
                             "`nfunction Test-PtkRtkAnswers { param(`$Path) `$Path -notlike '*mute*' }" +
-                            "`ntry { Assert-PtkRtkPathUsable; `$found = Find-PtkRtk; " +
-                            "if (`$found) { `$found } else { 'none' } } catch { 'refused: ' + `$_.Exception.Message }"))
+                            "`nfunction Install-PtkRtkRelease { Install-Fake }" +
+                            "`nfunction Install-PtkRtkWithScript { Install-Fake }" +
+                            "`nfunction Install-Fake { New-Item -ItemType Directory -Force -Path '$localBin' | Out-Null; " +
+                            "Set-Content -LiteralPath '$localRtk' -Value 'rtk'; " +
+                            "if (-not `$IsWindows) { /bin/chmod +x '$localRtk' }; '$localRtk' }" +
+                            "`nfunction Update-PtkProcessPath { }" + $run))
                 }
                 & $probe @($payloadBin) $null | Should -Be 'none'
                 & $probe @($payloadBin, $otherBin) $null | Should -Be $otherRtk
@@ -1873,36 +1891,45 @@ Describe 'development package layout' {
                 & $probe @($otherBin) $mute | Should -Match "refused: .* does not answer 'rtk rewrite'"
                 # Whitespace is unset, as the server reads it: PATH is searched.
                 & $probe @($otherBin) '  ' | Should -Be $otherRtk
-                # Case matters exactly when the filesystem says so: the probe
-                # answers for this volume, and a differently-cased spelling of
-                # the payload directory is contained wherever it resolves.
-                & ([scriptblock]::Create(($bodies -join "`n") +
-                        "`nTest-PtkCaseInsensitiveDirectory -Directory '$payloadBin'")) | Should -Be (-not $IsLinux)
-                & $probe @((Join-Path $caseHome '.PTK' 'BIN')) $null | Should -Be 'none'
+                # Another spelling of the payload directory: the same directory
+                # where the volume ignores case (contained), a distinct one
+                # with its own rtk where it does not (found).
+                $flippedBin = Join-Path $caseHome '.PTK' 'BIN'
+                $sameDirectory = Test-Path -LiteralPath $flippedBin -PathType Container
+                $flippedRtk = if ($sameDirectory) { Join-Path $flippedBin $rtkName } else { & $placeRtk $flippedBin }
+                & $probe @($flippedBin) $null | Should -Be ($sameDirectory ? 'none' : $flippedRtk)
+                # A directory link to the payload directory (a junction on
+                # Windows, where symbolic links need a privilege).
+                $viaDir = Join-Path $caseHome 'via'
+                New-Item -ItemType ($IsWindows ? 'Junction' : 'SymbolicLink') -Path $viaDir -Target $payloadBin | Out-Null
+                & $probe @($viaDir) $null | Should -Be 'none'
+                & $probe @($otherBin) (Join-Path $viaDir $rtkName) | Should -Match 'refused: .* inside the ptk payload'
+                # The payload reached through two links.
+                $twoHop = Join-Path $caseHome 'two-hop'
+                New-Item -ItemType ($IsWindows ? 'Junction' : 'SymbolicLink') -Path $twoHop -Target $viaDir | Out-Null
+                & $probe @($twoHop) $null | Should -Be 'none'
                 if (-not $IsWindows) {
-                    # A link outside the payload that points into it is the
-                    # payload copy under another name.
+                    # A file link outside the payload that points into it is
+                    # the payload copy under another name.
                     $linkDir = Join-Path $caseHome 'link-bin'
                     New-Item -ItemType Directory -Force -Path $linkDir | Out-Null
                     New-Item -ItemType SymbolicLink -Path (Join-Path $linkDir $rtkName) -Target $payloadRtk | Out-Null
                     & $probe @($linkDir) $null | Should -Be 'none'
                     & $probe @($otherBin) (Join-Path $linkDir $rtkName) | Should -Match 'refused: .* inside the ptk payload'
-                    # A directory link whose target itself passes through
-                    # another link needs more than one resolution pass.
-                    $viaDir = Join-Path $caseHome 'via'
-                    New-Item -ItemType SymbolicLink -Path $viaDir -Target $payloadBin | Out-Null
-                    $twoHop = Join-Path $caseHome 'two-hop'
-                    New-Item -ItemType SymbolicLink -Path $twoHop -Target (Join-Path $caseHome 'via') | Out-Null
-                    & $probe @($twoHop) $null | Should -Be 'none'
                     # A looping link cannot be classified: skipped on PATH,
-                    # refused when configured.
+                    # refused when configured, and the install still proceeds
+                    # past it when nothing else is on PATH.
                     $loopDir = Join-Path $caseHome 'loop-bin'
                     New-Item -ItemType Directory -Force -Path $loopDir | Out-Null
                     $loop = Join-Path $loopDir $rtkName
                     New-Item -ItemType SymbolicLink -Path $loop -Target $loop | Out-Null
                     & $probe @($loopDir, $otherBin) $null | Should -Be $otherRtk
-                    & $probe @($otherBin) $loop | Should -Match 'refused: .* cannot be resolved'
+                    & $probe @($otherBin) $loop | Should -Match 'refused: .* cannot be classified'
+                    & $probe @($loopDir, $localBin) $null -install | Should -Be 'installed'
+                    Test-Path -LiteralPath $localRtk | Should -BeTrue
                 }
+                # The probe file never outlives the check.
+                Get-ChildItem -LiteralPath $payloadBin -Force -Filter '.ptk-rtk-probe-*' | Should -BeNullOrEmpty
             }
             finally {
                 $env:PATH, $env:PTK_RTK_PATH = $savedPath, $savedRtk

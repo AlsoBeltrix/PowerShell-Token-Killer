@@ -40,7 +40,7 @@ codex accepted). See `.agents/review/findings/rr-10.md`.
 
 ## rr-9 rtk installer script fetched unpinned (2026-10-26)
 
-Closed by ruling D2 (2026-10-27): no third-party script on any platform;
+Closed by ruling D2 (2026-10-27, codex accepted): no third-party script on any platform;
 the installer downloads and verifies rtk's release archive itself, tested
 with fixtures of both archive kinds. See `.agents/review/findings/rr-9.md`.
 

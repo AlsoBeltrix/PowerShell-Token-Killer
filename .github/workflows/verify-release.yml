@@ -101,7 +101,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'RTK cannot run on this native platform.' }
           "PTK_PROOF_RTK=$binary" >> $env:GITHUB_ENV
           $destination >> $env:GITHUB_PATH
-      - name: Prove downloaded signatures, installation, CLI, runtime, SIEM, and uninstall
+      - name: Prove downloaded signatures, installation, CLI, runtime, and uninstall
         shell: pwsh
         env:
           PTK_RELEASE_RID: ${{ matrix.rid }}

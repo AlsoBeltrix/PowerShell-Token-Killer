@@ -24,16 +24,16 @@ any version-specific migration or say explicitly that none is required.
 
 ## Supported artifacts
 
-The release must contain `SHA256SUMS`, `ptk-installer.zip`, and both products
-for every supported RID:
+The release must contain `SHA256SUMS`, `ptk-installer.zip`, and the PTK
+archive for every supported RID:
 
-| RID | PTK | SIEM receiver |
-| --- | --- | --- |
-| `win-x64` | `ptk-<version>-win-x64.zip` | `ptk-siem-receiver-<version>-win-x64.zip` |
-| `win-arm64` | `ptk-<version>-win-arm64.zip` | `ptk-siem-receiver-<version>-win-arm64.zip` |
-| `linux-x64` | `ptk-<version>-linux-x64.tar.gz` | `ptk-siem-receiver-<version>-linux-x64.tar.gz` |
-| `linux-arm64` | `ptk-<version>-linux-arm64.tar.gz` | `ptk-siem-receiver-<version>-linux-arm64.tar.gz` |
-| `osx-arm64` | `ptk-<version>-osx-arm64.tar.gz` | `ptk-siem-receiver-<version>-osx-arm64.tar.gz` |
+| RID | PTK |
+| --- | --- |
+| `win-x64` | `ptk-<version>-win-x64.zip` |
+| `win-arm64` | `ptk-<version>-win-arm64.zip` |
+| `linux-x64` | `ptk-<version>-linux-x64.tar.gz` |
+| `linux-arm64` | `ptk-<version>-linux-arm64.tar.gz` |
+| `osx-arm64` | `ptk-<version>-osx-arm64.tar.gz` |
 
 State that macOS ARM64 assets are Developer ID signed and notarized, and that
 Windows (from 0.3.0-rc.4) and Linux assets are not publisher code-signed and

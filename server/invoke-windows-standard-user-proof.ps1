@@ -23,13 +23,12 @@ try {
     # standard account can read. Its profile and all product state are new.
     New-Item -ItemType Directory $directory | Out-Null
     $checkout = Split-Path -Parent $PSScriptRoot
-    foreach ($entry in 'server', 'siem', 'scripts') {
+    foreach ($entry in 'server', 'scripts') {
         New-Item -ItemType Directory (Join-Path $directory $entry) | Out-Null
     }
     # These proof scripts load only other scripts; no checkout-built binary
     # is copied or used. The product always comes from the verified archives.
     Get-ChildItem (Join-Path $checkout 'server') -File -Filter '*.ps1' | Copy-Item -Destination (Join-Path $directory 'server')
-    Get-ChildItem (Join-Path $checkout 'siem') -File -Filter '*.ps1' | Copy-Item -Destination (Join-Path $directory 'siem')
     Copy-Item (Join-Path $checkout 'scripts/ptk_build_provenance.psm1') (Join-Path $directory 'scripts')
     Copy-Item $DownloadRoot (Join-Path $directory 'downloads') -Recurse
     Copy-Item $RtkPath (Join-Path $directory 'rtk.exe')

@@ -41,11 +41,13 @@ approval.
 
 ## Verification
 
-**Audit and SIEM are dead (owner, 2026-10-27; `.agents/decisions.md`).** No
-agent time on audit, audit export, the `siem/` receiver or attribution except
-their removal (`.agents/plans/audit-siem-removal.md`). Until removal lands,
-the SIEM and audit entries below stay in the battery; a failure confined to
-them is recorded with a pointer to the removal plan, not repaired.
+**The SIEM integration is dead (owner, 2026-10-27; `.agents/decisions.md`
+and its 2026-10-27 amendment).** The export destinations and coordinator,
+the mini-SIEM receiver, `ptk-audit-admin` and the web UI are being removed
+under `.agents/plans/audit-siem-removal.md` (the receiver and its release
+legs went 2026-10-27). The local audit journal, its startup behaviour and its
+proof gates stay and are maintained as before. No agent time on the SIEM
+integration except its removal.
 
 Confirmed automated verification commands (re-run 2026-09-04 at clean
 local release-readiness head `0c9328a`
@@ -71,31 +73,11 @@ on a truncated `PSModulePath` (see `.agents/machines.md`) — not universal,
 the `0c9328a` run above was clean from a plain shell.
 
 ```
-dotnet test siem/PtkSiem.slnx
-```
-— 357/357 passed with no warnings (standalone retained SIEM receiver suite)
-on a host whose identity may create symlinks, re-confirmed at `0c9328a`. On a
-Windows host without `SeCreateSymbolicLinkPrivilege`, the symlink-specific
-cases stop in test setup before any product assertion (see the head-stamped
-historical counts in `.agents/machines.md` §`ASHBIAMWEB1`); that setup result
-is not a product failure.
-
-```
-pwsh -NoProfile -File siem/test-manage.ps1
-```
-— passed at `0c9328a` (separate mini-SIEM checksum/deployment, ownership,
-upgrade/uninstall/data-removal lifecycle). Release packaging additionally runs
-`siem/operator-workflow-proof.ps1` against packaged PTK and receiver bits; it is
-adapter/workflow proof and does not replace Decision D real-SIEM acceptance.
-
-```
 dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive
 ```
 — all five server projects reported no vulnerable packages, re-confirmed at
-`0c9328a`. All three SIEM projects also reported no vulnerable packages when
-the equivalent command was run against `siem/PtkSiem.slnx`. Treat any listed
-package as a failed production dependency check even if the command itself
-returns zero.
+`0c9328a`. Treat any listed package as a failed production dependency check
+even if the command itself returns zero.
 
 ```
 pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
@@ -108,9 +90,10 @@ when server-facing setup or code changes.
 pwsh -NoProfile -File server/test-build-identity.ps1
 ```
 
-— builds PTK and the SIEM receiver twice from one checkout, requires four
-distinct exact identities, validates manifest/binary agreement, and probes
-dirty-source detection. Passed at clean commit `0c9328a`.
+— builds PTK twice from one checkout, requires two distinct exact
+identities, validates manifest/binary agreement, and probes dirty-source
+detection. Passed at clean commit `0c9328a` and again 2026-10-27 with the
+receiver half removed.
 
 ```
 pwsh -NoProfile -File server/test-staged-install.ps1 -LayoutRoot <package-root>
@@ -162,12 +145,9 @@ throwaway home — never the operator's real `~/.ptk`. Install into an isolated 
 Release artifacts are built by `.github/workflows/release.yml` on a `v*` tag
 or `workflow_dispatch`. It builds each of the five RIDs on its own native
 runner, smoke-tests and RTK-gate-proves every artifact there, and assembles a
-**draft** release only — publishing is an owner action. Since
-audit-restoration R6, each leg also publishes, signs, smokes
-(no-config refusal naming `PTK_SIEM_CONFIG`), and archives the standalone
-SIEM receiver as its own artifact (`ptk-siem-receiver-<version>-<rid>`), so
-a draft carries ten artifacts, and the macOS notarization envelope covers
-both payloads. The osx-arm64 leg
+**draft** release only — publishing is an owner action. A draft carries
+five PTK artifacts plus the installer bundle and `SHA256SUMS` (the SIEM
+receiver legs were removed 2026-10-27). The osx-arm64 leg
 additionally Developer ID-signs every Mach-O (hardened runtime; executables
 get `server/macos-signing-entitlements.plist` — the JITting .NET runtime
 dies under hardening without it) **before** the gates run, then notarizes
@@ -187,7 +167,7 @@ installer, `scripts/install.ps1` (`3109ec1`, 2026-08-04); the former root
 `install.ps1`/`install.sh` pair was consolidated into it and deleted.
 
 CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
-runs the same battery (Pester, server/SIEM tests, handshake) on an
+runs the same battery (Pester, server tests, handshake) on an
 ubuntu/windows/macos matrix for pushes to `master`/`ci/**` and PRs to
 `master`. It first installs RTK on every platform, since the server refuses to
 start without it. Local verification before claiming completion still applies.

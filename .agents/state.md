@@ -14,8 +14,13 @@ release (`0.3.0-rc.6` by delegation) carries both; the installer downloads
 rtk's release archive directly on every platform (no third-party script;
 reverses the 2026-10-24 mechanism, destination unchanged; closes rr-9);
 rr-11 does not gate. Recorded in `.agents/decisions.md` (2026-10-27 amendment), the
-removal plan (approved, narrowed) and the rc.6 plan (superseded). Next: the
-direct-download installer change, then removal slices 1 and 2, then the
+removal plan (approved, narrowed) and the rc.6 plan (superseded). Done
+since: the direct-download installer change (`3f465431`, codex accepted,
+closes rr-9) and removal slice 1 (the `siem/` receiver product, its CI job,
+its release legs, the asset scripts' counts, and the receiver halves of the
+proof scripts; build-identity proof and the asset scripts' tests pass).
+Next: removal slice 2 (export destinations and coordinator, the web UI,
+alerts, `ptk-audit-admin`, the destination script), then docs, then the
 release.
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on

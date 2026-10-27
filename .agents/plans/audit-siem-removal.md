@@ -196,7 +196,7 @@ the original ask, kept for the record.
 Each slice is one commit (or a short series), leaves `master` green, and is
 pushed before the next starts.
 
-1. **Remove the SIEM receiver product.** Delete `siem/**`; remove the CI
+1. **DONE 2026-10-27 — Remove the SIEM receiver product.** Delete `siem/**`; remove the CI
    `siem` job; remove every receiver leg from `release.yml` and the artifact
    count change; update `assemble-draft-release.sh`,
    `verify-release-assets.py` and their tests to the PTK-only asset set;

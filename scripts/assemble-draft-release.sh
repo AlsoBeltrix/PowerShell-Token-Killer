@@ -48,7 +48,7 @@ required_assets=()
 for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-arm64; do
   extension=tar.gz
   [[ "$rid" == win-* ]] && extension=zip
-  for product in ptk ptk-siem-receiver; do
+  for product in ptk; do
     archive="$asset_dir/$product-$version-$rid.$extension"
     [[ -f "$archive" ]] || {
       echo "required release archive is missing: '$archive'" >&2

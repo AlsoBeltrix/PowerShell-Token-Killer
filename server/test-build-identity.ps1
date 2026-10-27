@@ -128,46 +128,6 @@ try {
     Assert-True ($records[0].source_commit -ceq $records[1].source_commit) `
         'Two builds from one checkout disagree on source commit.'
 
-    $siemRecords = foreach ($name in 'siem-one', 'siem-two') {
-        $layout = Join-Path $tempRoot $name
-        & (Join-Path $repoRoot 'siem' 'build-package.ps1') `
-            -OutputDir $layout `
-            -Rid $rid `
-            -Version $version | Out-Host
-        $record = Get-Content -LiteralPath (
-            Join-Path $layout 'BUILD-PROVENANCE.json') -Raw | ConvertFrom-Json
-        Assert-True ($record.schema_version -eq 1) `
-            'Unexpected SIEM provenance schema version.'
-        Assert-True ($record.product -ceq 'ptk-siem-receiver') `
-            'Unexpected SIEM provenance product.'
-        Assert-True ($record.product_version -ceq $version) `
-            'SIEM provenance version mismatch.'
-        Assert-True ($record.target_rid -ceq $rid) 'SIEM provenance RID mismatch.'
-        Assert-True ($record.build_identity -cmatch '^[0-9a-f]{32}$') `
-            "Invalid SIEM build identity '$($record.build_identity)'."
-        Assert-True ($record.source_commit -ceq $records[0].source_commit) `
-            'PTK and SIEM builds from one checkout disagree on source commit.'
-        Assert-True ($record.source_dirty -eq $expectedSourceDirty) `
-            'SIEM provenance does not match the source tree dirty state.'
-        $informational = Get-InformationalVersion (
-            Join-Path $layout 'PtkSiemReceiver.dll')
-        $revision = if ($record.source_commit -ceq 'unknown') {
-            'unknown'
-        }
-        else {
-            $record.source_commit.Substring(0, 7)
-        }
-        $expected = "$version+$revision.build.$($record.build_identity)"
-        Assert-True ($informational -ceq $expected) `
-            "SIEM assembly identity mismatch: expected '$expected', got '$informational'."
-        $record
-    }
-    Assert-True ($siemRecords[0].build_identity -cne $siemRecords[1].build_identity) `
-        'Two SIEM builds of the same version and commit reused one build identity.'
-    $allIdentities = @($records.build_identity) + @($siemRecords.build_identity)
-    Assert-True (@($allIdentities | Sort-Object -Unique).Count -eq 4) `
-        'Independent PTK and SIEM builds did not receive unique identities.'
-
     $ci = Get-Content -LiteralPath (
         Join-Path $repoRoot '.github/workflows/ci.yml') -Raw
     Assert-True ($ci -match 'server/test-build-identity\.ps1') `
@@ -177,9 +137,6 @@ try {
     Assert-True ($release -match (
             'direct-product-proof\.ps1[\s\S]{0,300}?-RequireCleanSource')) `
         'Release workflow does not require clean PTK provenance.'
-    Assert-True ($release -match (
-            'verify-package\.ps1[\s\S]{0,400}?-RequireCleanSource')) `
-        'Release workflow does not require clean SIEM provenance.'
 
     'BUILD IDENTITY TEST PASSED'
 }

@@ -21,7 +21,6 @@ $downloads = (Resolve-Path $DownloadRoot).ProviderPath
 $fixture = Join-Path ([Environment]::GetFolderPath('UserProfile')) (
     '.ptk-downloaded-proof-' + [guid]::NewGuid().ToString('N'))
 $layout = Join-Path $fixture 'layout'
-$siem = Join-Path $fixture 'siem'
 $installed = Join-Path $fixture 'home/.ptk'
 $staging = Join-Path $fixture 'staging'
 $snapshot = Join-Path $fixture 'snapshot'
@@ -47,15 +46,13 @@ function Expand-ProofArchive {
 }
 try {
     New-Item -ItemType Directory -Path $fixture, $installed -Force | Out-Null
-    $siemArchive = Join-Path $downloads "ptk-siem-receiver-$Version-$Rid.$suffix"
     Expand-ProofArchive (Join-Path $downloads "ptk-$Version-$Rid.$suffix") $layout
-    Expand-ProofArchive $siemArchive $siem
     if ($IsWindows) {
         # Windows payloads are not publisher-signed since 2026-10-23 (no
         # signing account); integrity rests on SHA256SUMS, checked before
         # this proof. Files that do carry a signature (Microsoft's runtime
         # binaries) must still verify, so a damaged or altered one fails.
-        $binaries = @(Get-ChildItem $layout, $siem -Recurse -File | Where-Object Extension -in '.exe', '.dll')
+        $binaries = @(Get-ChildItem $layout -Recurse -File | Where-Object Extension -in '.exe', '.dll')
         $valid = 0
         foreach ($file in $binaries) {
             $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
@@ -69,7 +66,7 @@ try {
     }
     elseif ($IsMacOS) {
         $count = 0
-        foreach ($file in Get-ChildItem $layout, $siem -Recurse -File) {
+        foreach ($file in Get-ChildItem $layout -Recurse -File) {
             $type = & /usr/bin/file -b $file.FullName
             if ($LASTEXITCODE -ne 0) { throw 'file inspection failed.' }
             if ($type -notmatch 'Mach-O') { continue }
@@ -102,13 +99,6 @@ try {
         } `
         -RegistrationCutover { }
     $server = Join-Path $installed 'bin' $serverName
-    Invoke-ProofScript (Join-Path $repository 'siem/verify-package.ps1') @(
-        '-PackageDir', $siem, '-Rid', $Rid, '-Version', $Version,
-        '-SourceCommit', $SourceCommit, '-RequireCleanSource')
-    Invoke-ProofScript (Join-Path $repository 'siem/operator-workflow-proof.ps1') @(
-        '-PtkServerPath', $server, '-PackageDir', $siem, '-ArchivePath', $siemArchive,
-        '-ChecksumFile', (Join-Path $downloads 'SHA256SUMS'), '-Version', $Version, '-Rid', $Rid,
-        '-RtkPath', $RtkPath, '-DestinationToolPath', (Join-Path $installed 'scripts/ptk-audit-destination.ps1'))
     Invoke-ProofScript (Join-Path $PSScriptRoot 'direct-product-proof.ps1') @(
         '-ServerPath', $server, '-RequireCleanSource', '-UninstallHome', $installed)
     if ((Get-Content (Join-Path $installed 'user-owned.conf') -Raw) -cne 'preserve') {

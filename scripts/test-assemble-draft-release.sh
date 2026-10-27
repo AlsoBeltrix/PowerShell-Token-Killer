@@ -26,7 +26,7 @@ sha256_file() {
   fi
 }
 
-# Each available standard consumer must verify all eleven files, not silently
+# Each available standard consumer must verify all six files, not silently
 # skip malformed lines. GNU sha256sum and Perl shasum differ on one-space input.
 verify_checksum_consumer() {
   local checksum_consumer
@@ -46,9 +46,9 @@ verify_checksum_consumer() {
       echo "$checksum_consumer rejected the assembled manifest" >&2
       return 1
     fi
-    if [[ $(grep -c ': OK$' "$work/checksum-consumer.log") -ne 11 ]]; then
+    if [[ $(grep -c ': OK$' "$work/checksum-consumer.log") -ne 6 ]]; then
       cat "$work/checksum-consumer.log" >&2
-      echo "$checksum_consumer did not verify all eleven assets" >&2
+      echo "$checksum_consumer did not verify all six assets" >&2
       return 1
     fi
   done
@@ -89,7 +89,6 @@ for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-arm64; do
   extension=tar.gz
   [[ "$rid" == win-* ]] && extension=zip
   printf '%s\n' 'proof asset' > "$work/assets/ptk-9.8.7-test-$rid.$extension"
-  printf '%s\n' 'proof asset' > "$work/assets/ptk-siem-receiver-9.8.7-test-$rid.$extension"
 done
 bash "$repo_root/scripts/build-installer-bundle.sh" \
   "$repo_root" "$work/assets/ptk-installer.zip" "$work/assets/SHA256SUMS"
@@ -163,7 +162,7 @@ fi
 for rid in win-x64 win-arm64 linux-x64 linux-arm64 osx-arm64; do
   extension=tar.gz
   [[ "$rid" == win-* ]] && extension=zip
-  for product in ptk ptk-siem-receiver; do
+  for product in ptk; do
     name="$product-9.8.7-test-$rid.$extension"
     printf '%s %s\n' "$(sha256_file "$work/assets/$name")" "$name" \
       >> "$work/assets/SHA256SUMS"
@@ -249,7 +248,7 @@ for invalid_case in wrong-hash duplicate-name embedded-cr; do
       } { print }' "$work/SHA256SUMS.good" > "$work/assets/SHA256SUMS"
       ;;
     duplicate-name)
-      awk '$2 == "ptk-siem-receiver-9.8.7-test-win-x64.zip" {
+      awk '$2 == "ptk-9.8.7-test-linux-x64.tar.gz" {
         printf "%s  ptk-9.8.7-test-win-x64.zip\r\n", $1; next
       } { print }' "$work/SHA256SUMS.good" > "$work/assets/SHA256SUMS"
       ;;

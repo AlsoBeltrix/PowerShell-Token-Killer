@@ -25,7 +25,7 @@ class DownloadVerificationTests(unittest.TestCase):
         self.metadata = {"tag_name": "v" + self.version, "target_commitish": self.source, "assets": []}
         sums = []
         for rid in module.RIDS:
-            for product in ("ptk", "ptk-siem-receiver"):
+            for product in ("ptk",):
                 data = json.dumps({"schema_version": 1, "product": product,
                     "product_version": self.version, "source_commit": self.source,
                     "source_dirty": False, "target_rid": rid, "build_identity": uuid.uuid4().hex}).encode()
@@ -59,9 +59,9 @@ class DownloadVerificationTests(unittest.TestCase):
     def verify(self, **kwargs):
         return module.verify(self.root, self.metadata, self.version, self.source, **kwargs)
 
-    def test_all_ten_identities_and_native_subset(self):
-        self.assertEqual(10, len(self.verify()))
-        self.assertEqual(2, len(self.verify(rid="win-arm64")))
+    def test_all_five_identities_and_native_subset(self):
+        self.assertEqual(5, len(self.verify()))
+        self.assertEqual(1, len(self.verify(rid="win-arm64")))
 
     def test_changed_download_is_refused(self):
         with (self.root / "ptk-installer.zip").open("ab") as stream:
@@ -81,7 +81,7 @@ class DownloadVerificationTests(unittest.TestCase):
             self.verify()
         self.write_manifest(manifest)
         self.metadata["assets"].append(copy.deepcopy(self.metadata["assets"][0]))
-        with self.assertRaisesRegex(ValueError, "twelve"):
+        with self.assertRaisesRegex(ValueError, "seven"):
             self.verify()
 
     def test_github_digest_and_manifest_must_agree_even_for_other_rids(self):

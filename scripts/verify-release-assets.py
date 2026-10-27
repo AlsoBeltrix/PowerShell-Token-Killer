@@ -16,15 +16,15 @@ def verify(directory, metadata, version, source, rid=None):
     packages = {}
     for platform in RIDS:
         suffix = "zip" if platform.startswith("win-") else "tar.gz"
-        for product, prefix in (("ptk", "ptk"), ("ptk-siem-receiver", "ptk-siem-receiver")):
+        for product, prefix in (("ptk", "ptk"),):
             name = f"{prefix}-{version}-{platform}.{suffix}"
             expected.add(name)
             packages[name] = (product, platform)
     if metadata["tag_name"] != f"v{version}" or metadata["target_commitish"] != source:
         raise ValueError("Release tag/source does not match the requested candidate")
     assets = metadata["assets"]
-    if len(assets) != 12 or {a["name"] for a in assets} != expected | {"SHA256SUMS"}:
-        raise ValueError("Release must contain exactly the twelve expected assets")
+    if len(assets) != 7 or {a["name"] for a in assets} != expected | {"SHA256SUMS"}:
+        raise ValueError("Release must contain exactly the seven expected assets")
     digests = {}
     for asset in assets:
         if asset["state"] != "uploaded" or not re.fullmatch(r"sha256:[0-9a-f]{64}", asset["digest"] or ""):

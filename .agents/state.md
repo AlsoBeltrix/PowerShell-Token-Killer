@@ -48,7 +48,10 @@ has needed since 2026-07-28 (`GetUnixFileMode`), and the README says
 at `45a3476b` green on all six jobs; codex accepted the tenth delta
 after withdrawing a disputed claim on evidence; closed), rr-13 (LOW, from the codex change review, fixed 2026-10-27: a
 user's own rtk at the install target was overwritten, recorded as the
-installer's and removed on uninstall; codex verdict pending). Codex ran
+installer's and removed on uninstall; codex reopened it for the string
+ownership compare and the unguarded write boundary, repaired the same
+day with identity-based ownership and a no-clobber placement from a
+staging directory; verdict on the repair pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):
 rr-10 reopened, repaired and accepted; three installer candidates (rr-12,
 rr-13, a duplicate of rr-9); the plan review endorsed rc.6 with corrections

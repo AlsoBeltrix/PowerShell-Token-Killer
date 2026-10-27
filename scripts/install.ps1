@@ -693,7 +693,9 @@ function Assert-PtkDotnetSdk {
 # rtk's manual instructions say. Both land in $RTK_INSTALL_DIR, default
 # ~/.local/bin. The copy is recorded so uninstall removes only that one.
 
-$rtkInstallDir = if ($env:RTK_INSTALL_DIR) { $env:RTK_INSTALL_DIR } else { Join-Path $HOME '.local' 'bin' }
+# Absolute, so the marker names one file whatever a later run's working
+# directory is (rr-13).
+$rtkInstallDir = [IO.Path]::GetFullPath(($env:RTK_INSTALL_DIR ? $env:RTK_INSTALL_DIR : (Join-Path $HOME '.local' 'bin')))
 $rtkInstallScriptUrl = 'https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh'
 $rtkReleaseBase = 'https://github.com/rtk-ai/rtk/releases/latest/download'
 
@@ -864,21 +866,35 @@ function Assert-PtkRtkPathUsable {
 }
 
 # The fetch overwrites rtk at the install target. A copy already there that
-# this installer did not place (no marker, or another hash) is the user's
-# own, merely unreachable from PATH; overwriting it would also let uninstall
-# delete it later (rr-13). The installer's own earlier copy may be replaced.
+# this installer did not place is the user's own, merely unreachable from
+# PATH; overwriting it would also let uninstall delete it later (rr-13). The
+# installer's own earlier copy may be replaced.
 function Assert-PtkRtkTargetFree {
     $target = Join-Path $rtkInstallDir ($IsWindows ? 'rtk.exe' : 'rtk')
     if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { return }
-    $marker = Join-Path $ptkHome $rtkMarkerName
-    if (Test-Path -LiteralPath $marker) {
-        $ours, $hash = @((Get-Content -LiteralPath $marker -Raw).Trim() -split '\r?\n')
-        if ($ours -eq $target -and $hash -and
-            $hash -ceq (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()) { return }
-    }
+    if (Test-PtkInstalledRtk -Path $target) { return }
     throw ("rtk already exists at $target, but it is not the copy this installer placed and ptk " +
         "cannot use it: its directory is not on PATH, or it does not answer 'rtk rewrite'. " +
         "Add $rtkInstallDir to PATH, or remove that file, and re-run this installer.")
+}
+
+# True when the file at $Path is the copy this installer placed: the marker
+# names the same file (the same directory by identity, the same name) and
+# the file still carries the recorded hash. Markers before 2026-10-24 carry
+# no hash and name a copy inside the payload; they never match.
+function Test-PtkInstalledRtk {
+    param([Parameter(Mandatory)][string]$Path)
+    $marker = Join-Path $ptkHome $rtkMarkerName
+    if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) { return $false }
+    $ours, $hash = @((Get-Content -LiteralPath $marker -Raw).Trim() -split '\r?\n')
+    if (-not $ours -or -not $hash) { return $false }
+    if ((Split-Path -Leaf $ours) -cne (Split-Path -Leaf $Path)) { return $false }
+    try {
+        if ((Get-PtkDirectoryIdentity -Directory (Split-Path -Parent $ours)) -ne
+            (Get-PtkDirectoryIdentity -Directory (Split-Path -Parent $Path))) { return $false }
+    }
+    catch { return $false }
+    $hash -ceq (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
 # Asked before anything is staged, so declining leaves the machine untouched.
@@ -909,8 +925,10 @@ function Get-PtkRtkExpectedHash {
 }
 
 # Windows: rtk publishes no aarch64 build, so ARM64 gets the x64 one, which
-# runs under emulation and is probed like any other.
+# runs under emulation and is probed like any other. The binary lands in the
+# caller's staging directory; the caller places it.
 function Install-PtkRtkRelease {
+    param([Parameter(Mandatory)][string]$Staging)
     $asset = 'rtk-x86_64-pc-windows-msvc.zip'
     $staging = Join-Path ([IO.Path]::GetTempPath()) ("ptk-rtk-{0}" -f ([guid]::NewGuid()))
     New-Item -ItemType Directory -Path $staging -Force | Out-Null
@@ -929,10 +947,9 @@ function Install-PtkRtkRelease {
             Select-Object -First 1
         if (-not $found) { throw 'rtk archive did not contain rtk.exe.' }
 
-        New-Item -ItemType Directory -Path $rtkInstallDir -Force | Out-Null
-        $target = Join-Path $rtkInstallDir 'rtk.exe'
-        Copy-Item -LiteralPath $found.FullName -Destination $target -Force
-        $target
+        $stagedBinary = Join-Path $Staging 'rtk.exe'
+        Copy-Item -LiteralPath $found.FullName -Destination $stagedBinary
+        $stagedBinary
     }
     finally {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
@@ -940,18 +957,23 @@ function Install-PtkRtkRelease {
 }
 
 # Linux and macOS: rtk installs itself. install.sh reads RTK_INSTALL_DIR from
-# the environment this child inherits.
+# the environment this child inherits, pointed at the caller's staging
+# directory; the caller places the binary.
 function Install-PtkRtkWithScript {
+    param([Parameter(Mandatory)][string]$Staging)
     $script = Join-Path ([IO.Path]::GetTempPath()) ("ptk-rtk-install-{0}.sh" -f ([guid]::NewGuid()))
+    $savedInstallDir = $env:RTK_INSTALL_DIR
     try {
         Invoke-WebRequest -UseBasicParsing -Uri $rtkInstallScriptUrl -OutFile $script
+        $env:RTK_INSTALL_DIR = $Staging
         sh $script | Out-Host
         if ($LASTEXITCODE -ne 0) { throw "rtk's installer failed with exit code $LASTEXITCODE." }
     }
     finally {
+        $env:RTK_INSTALL_DIR = $savedInstallDir
         Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue
     }
-    Join-Path $rtkInstallDir 'rtk'
+    Join-Path $Staging 'rtk'
 }
 
 # This process inherited PATH when it started; a directory the user has since
@@ -1003,9 +1025,31 @@ function Install-PtkRtk {
         Write-Host "Ignoring $($stale[0].Source): it sits inside the ptk payload this install replaces."
     }
     Write-Host "rtk not found; installing it into $rtkInstallDir (required dependency)."
-    $placed = if ($IsWindows) { Install-PtkRtkRelease } else { Install-PtkRtkWithScript }
-    if (-not (Test-Path -LiteralPath $placed -PathType Leaf)) {
-        throw "rtk's installer finished, but $placed does not exist."
+    # Fetched into a private staging directory beside the target, then placed
+    # with a move that never overwrites: the installer's own earlier copy is
+    # removed first (proved by marker and hash), and anything else that
+    # appeared since the check before consent makes the move fail, so the
+    # refusal holds at the write itself, not only at the question (rr-13).
+    New-Item -ItemType Directory -Path $rtkInstallDir -Force | Out-Null
+    $staging = Join-Path $rtkInstallDir ('.ptk-rtk-staging-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $staging | Out-Null
+    try {
+        $staged = if ($IsWindows) { Install-PtkRtkRelease -Staging $staging } else { Install-PtkRtkWithScript -Staging $staging }
+        if (-not (Test-Path -LiteralPath $staged -PathType Leaf)) {
+            throw "rtk's installer finished, but $staged does not exist."
+        }
+        $placed = Join-Path $rtkInstallDir (Split-Path -Leaf $staged)
+        if ((Test-Path -LiteralPath $placed -PathType Leaf) -and (Test-PtkInstalledRtk -Path $placed)) {
+            Remove-Item -LiteralPath $placed -Force
+        }
+        try { [IO.File]::Move($staged, $placed, $false) }
+        catch {
+            throw ("rtk appeared at $placed while this installer was fetching one, and it is not the copy " +
+                "this installer placed. Add $rtkInstallDir to PATH, or remove that file, and re-run this installer.")
+        }
+    }
+    finally {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
     # Recorded before the checks below, so a re-run after the user fixes PATH
     # still knows which copy uninstall may remove. The hash keeps uninstall

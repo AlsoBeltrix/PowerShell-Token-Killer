@@ -2,10 +2,12 @@
 
 ## rr-13 user's rtk at the install target overwritten and adopted (2026-10-27)
 
-Fixed on `master`: before fetching rtk, the installer refuses a copy at the
-install target that it did not place (marker path and hash), instead of
-overwriting it and deleting it on uninstall; guard added. Codex verdict
-pending. See `.agents/review/findings/rr-13.md`.
+Fixed on `master` in two commits: the installer refuses a copy at the
+install target that it did not place (ownership by directory identity,
+name and hash, after the codex reopen), and places the fetched rtk from a
+staging directory beside the target with a move that never overwrites,
+so the refusal holds at the write itself. Verdict on the repair pending.
+See `.agents/review/findings/rr-13.md`.
 
 ## rr-12 payload-resident rtk accepted, then deleted by the upgrade (2026-10-27)
 

@@ -113,7 +113,10 @@ package-channel fixes. Resolve the review findings below before tagging.
    proof), repaired in `f12939e3`; codex accepted; closed.
 3. **rr-12 and rr-13.** rr-12 closed (ten commits, `23e11dbc` to
    `5d06b9f2`; codex accepted after nine reopens and one dispute
-   resolved by evidence). rr-13 fixed (`3cfc06a1`); verdict pending.
+   resolved by evidence). rr-13 fixed (`3cfc06a1`), reopened by codex
+   (string ownership compare; unguarded write boundary) and repaired
+   (identity-based ownership; no-clobber placement from staging); verdict
+   on the repair pending.
 4. **rr-9.** Apply D2; exercise the install.sh route locally in a throwaway
    home with no rtk on `PATH` (owner go needed to execute the external
    script under auto mode); add the same to CI on ubuntu and macos.
@@ -208,6 +211,9 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   verdict, pins `1302b4be..f29784c5`: reopened (Windows create instant;
   write before identity proof); repair verdict, pins
   `4fde314f..f12939e3`: accepted.
+- rr-13 verdict, pins `22862834..3cfc06a1`: reopened (ownership by string
+  compare; no check at the write boundary); the repair's verdict is
+  pending (pins in `rr-13.md`).
 - rr-12 verdict, pins `dc85fcf5..23e11dbc`: reopened (configured-path
   precedence; link following); repair verdict, pins `e44b3df6..b2db2dab`:
   reopened (filesystem case sensitivity, whitespace-only value, resolver
@@ -228,8 +234,7 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   `961f28bd..5d06b9f2`: reopened on the claim that the Unix file-mode
   APIs are .NET 6, disputed with the dotnet/runtime reference surface
   (absent at v6.0.36, present at v7.0.0); verdict on `961f28bd..b1577146`:
-  accepted, claim withdrawn. rr-12 closed. rr-13 verdict, pins `22862834..3cfc06a1`:
-  pending, dispatched after rr-12 resolves.
+  accepted, claim withdrawn. rr-12 closed.
 
 ## For the owner's attention (done, reversible)
 

@@ -1,5 +1,12 @@
 # Review status
 
+## rr-12 payload-resident rtk accepted, then deleted by the upgrade (2026-10-27)
+
+Fixed on `master`: the installer's rtk lookup skips `~/.ptk/bin` (the
+payload it replaces) and refuses a `PTK_RTK_PATH` inside it before any
+question; guard added. Codex verdict pending. See
+`.agents/review/findings/rr-12.md`.
+
 ## rr-10 zero-length audit quota control under concurrent start (2026-10-26)
 
 Fixed on `master` in two commits: atomic publication of the complete control

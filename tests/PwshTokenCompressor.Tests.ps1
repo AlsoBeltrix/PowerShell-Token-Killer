@@ -1783,7 +1783,7 @@ Describe 'development package layout' {
         # put rtk in ~/.ptk/bin, which the server never searches, and only
         # after the smoke tests had already started a server without it.
         It 'installs rtk where PATH can reach it, records it, and stops with advice when it cannot' {
-            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice'
+            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $probe = {
@@ -1819,6 +1819,45 @@ Describe 'development package layout' {
             $unreachable.Result | Should -Match 'not on PATH'
             $unreachable.Result | Should -Match 're-run this installer'
             ($unreachable.Marker -split "`n")[0] | Should -Be $unreachable.Placed
+        }
+
+        # rc.5 and earlier placed rtk inside ~/.ptk/bin, which an upgrade
+        # replaces wholesale: an rtk accepted there is gone before the
+        # installed smoke test starts the server, and the install rolls back.
+        It 'never relies on an rtk inside the payload it replaces' {
+            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Assert-PtkRtkPathOutsidePayload'
+            $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
+            $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
+            $caseHome = Join-Path $TestDrive ('rtk-payload-' + [guid]::NewGuid().ToString('N'))
+            $payloadBin = Join-Path $caseHome '.ptk' 'bin'
+            $otherBin = Join-Path $caseHome 'other-bin'
+            $rtkName = if ($IsWindows) { 'rtk.cmd' } else { 'rtk' }
+            foreach ($dir in $payloadBin, $otherBin) {
+                New-Item -ItemType Directory -Force -Path $dir | Out-Null
+                $file = Join-Path $dir $rtkName
+                Set-Content -LiteralPath $file -Value ($IsWindows ? '@echo off' : '#!/bin/sh')
+                if (-not $IsWindows) { chmod +x $file }
+            }
+            $savedPath, $savedRtk = $env:PATH, $env:PTK_RTK_PATH
+            try {
+                $probe = {
+                    param([string[]]$dirs, $configured)
+                    $env:PATH = $dirs -join [IO.Path]::PathSeparator
+                    $env:PTK_RTK_PATH = $configured
+                    & ([scriptblock]::Create(
+                            "`$ptkHome = '$caseHome/.ptk'`n" + ($bodies -join "`n") +
+                            "`nfunction Test-PtkRtkAnswers { `$true }" +
+                            "`ntry { Assert-PtkRtkPathOutsidePayload; `$found = Find-PtkRtk; " +
+                            "if (`$found) { `$found } else { 'none' } } catch { 'refused: ' + `$_.Exception.Message }"))
+                }
+                & $probe @($payloadBin) $null | Should -Be 'none'
+                & $probe @($payloadBin, $otherBin) $null | Should -Be (Join-Path $otherBin $rtkName)
+                & $probe @($otherBin) (Join-Path $payloadBin $rtkName) | Should -Match 'refused: PTK_RTK_PATH points at .* inside the ptk payload'
+                & $probe @($otherBin) (Join-Path $otherBin $rtkName) | Should -Be (Join-Path $otherBin $rtkName)
+            }
+            finally {
+                $env:PATH, $env:PTK_RTK_PATH = $savedPath, $savedRtk
+            }
         }
 
         It 'gives the PATH fix for the platform' {
@@ -1909,10 +1948,12 @@ Describe 'development package layout' {
         # asked about rtk, then refused the build anyway. Checks that need no
         # answer come first; every question still precedes staging.
         # rtk is installed before staging too: the smoke tests start the
-        # server, which refuses to start without it (found 2026-10-24).
+        # server, which refuses to start without it (found 2026-10-24). A
+        # PTK_RTK_PATH inside the payload is refused before any question.
         It 'refuses a doomed build before asking anything, and asks and installs rtk before staging' {
             $installerSource | Should -Match (
                 'if \(-not \$FromRelease\) \{ Assert-PtkNativeToolchain -TargetRid \$targetRid \}' +
+                '\s*\r?\n\s*Assert-PtkRtkPathOutsidePayload' +
                 '\s*\r?\n\s*Assert-PtkRtkConsent' +
                 '\s*\r?\n\s*if \(-not \$FromRelease\) \{ Assert-PtkDotnetSdk \}' +
                 '\s*\r?\n\s*Install-PtkRtk -TargetRid \$targetRid' +

@@ -712,11 +712,33 @@ function Test-PtkRtkAnswers {
 }
 
 # The path of a working rtk on PATH, or $null.
+# True for a path inside the bin/ payload this installer replaces wholesale.
+# Installers before 2026-10-24 put rtk there; an upgrade deletes that copy
+# before the installed smoke test starts the server, so relying on it rolls
+# the whole install back (rr-12).
+function Test-PtkPayloadRtk {
+    param([Parameter(Mandatory)][string]$Path)
+    $payloadBin = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $ptkHome 'bin')))
+    $comparison = if ($IsLinux) { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
+    [IO.Path]::GetFullPath($Path).StartsWith($payloadBin + [IO.Path]::DirectorySeparatorChar, $comparison)
+}
+
 function Find-PtkRtk {
-    $existing = Get-Command rtk -CommandType Application -ErrorAction SilentlyContinue |
-        Select-Object -First 1
-    if ($existing -and (Test-PtkRtkAnswers -Path $existing.Source)) { return $existing.Source }
+    # Every rtk on PATH in order, as the server searches, minus any inside the
+    # payload: the first one that answers is the one the installed server uses.
+    foreach ($candidate in @(Get-Command rtk -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        if (Test-PtkPayloadRtk -Path $candidate.Source) { continue }
+        if (Test-PtkRtkAnswers -Path $candidate.Source) { return $candidate.Source }
+    }
     $null
+}
+
+# The server takes PTK_RTK_PATH over PATH with no fallback, so a value inside
+# the payload would stop the installed server the moment bin/ is replaced.
+function Assert-PtkRtkPathOutsidePayload {
+    if (-not $env:PTK_RTK_PATH -or -not (Test-PtkPayloadRtk -Path $env:PTK_RTK_PATH)) { return }
+    throw ("PTK_RTK_PATH points at $env:PTK_RTK_PATH, inside the ptk payload ($ptkHome/bin) that " +
+        'this install replaces. Unset it, or point it at an rtk outside that directory, and re-run this installer.')
 }
 
 # Asked before anything is staged, so declining leaves the machine untouched.
@@ -833,6 +855,11 @@ function Install-PtkRtk {
         return
     }
 
+    $stale = @(Get-Command rtk -All -CommandType Application -ErrorAction SilentlyContinue |
+        Where-Object { Test-PtkPayloadRtk -Path $_.Source })
+    if ($stale) {
+        Write-Host "Ignoring $($stale[0].Source): it sits inside the ptk payload this install replaces."
+    }
     Write-Host "rtk not found; installing it into $rtkInstallDir (required dependency)."
     $placed = if ($IsWindows) { Install-PtkRtkRelease } else { Install-PtkRtkWithScript }
     if (-not (Test-Path -LiteralPath $placed -PathType Leaf)) {
@@ -1311,6 +1338,7 @@ Assert-PtkRuntimeNotRunning
         # machine untouched. rtk is installed before staging because the
         # smoke tests start the server, which refuses to start without it.
         if (-not $FromRelease) { Assert-PtkNativeToolchain -TargetRid $targetRid }
+        Assert-PtkRtkPathOutsidePayload
         Assert-PtkRtkConsent
         if (-not $FromRelease) { Assert-PtkDotnetSdk }
         Install-PtkRtk -TargetRid $targetRid

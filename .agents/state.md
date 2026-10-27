@@ -20,7 +20,11 @@ holding the creator's exclusive handle across the publish, suite
 `install.sh` fetched unpinned from rtk's non-default
 `master`; owner ruling D2; live route proof needs an owner go because auto
 mode refuses executing the external script), rr-11 (macOS slow-seal elapsed
-recurrence; diagnosis reopened per the closed plan; ruling D3). Blocked:
+recurrence; diagnosis reopened per the closed plan; ruling D3), rr-12
+(MEDIUM, from the codex change review, fixed 2026-10-27: the installer
+accepted an rtk inside `~/.ptk/bin`, the payload the upgrade then deletes,
+and would also have left a `PTK_RTK_PATH` pointing there; codex verdict
+pending). Blocked:
 both codex dispatches died on a revoked refresh token (`codex login`
 needed); the plan's dispatch record has the details. Pending owner rulings:
 D1 version (rc.6 vs 0.3.0), D2, D3. Release steps 5–6 wait on the owner's

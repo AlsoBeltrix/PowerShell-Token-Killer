@@ -21,8 +21,8 @@ holding the creator's exclusive handle across the publish, suite
 on ubuntu and macos, so the control is created in place again with an
 empty control meaning creation in progress (`f29784c5`); codex reopened
 that for the Windows unprotected-create instant and the write before the
-identity proof, repaired the same day, suite 1,398/1,398, verdict on the
-repair pending), rr-9 (rtk
+identity proof, repaired the same day (`f12939e3`), suite 1,398/1,398,
+codex accepted; closed), rr-9 (rtk
 `install.sh` fetched unpinned from rtk's non-default
 `master`; owner ruling D2; live route proof needs an owner go because auto
 mode refuses executing the external script), rr-11 (macOS slow-seal elapsed

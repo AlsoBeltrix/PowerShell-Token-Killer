@@ -110,7 +110,7 @@ package-channel fixes. Resolve the review findings below before tagging.
    unknown spool entry) and reworked in `f29784c5`: in-place creation
    again, an empty control means creation in progress; codex reopened the
    rework (Windows unprotected-create instant; write before the identity
-   proof), repaired. Verdict on the repair pending.
+   proof), repaired in `f12939e3`; codex accepted; closed.
 3. **rr-12 and rr-13.** Fixed (`23e11dbc`, `3cfc06a1`); codex verdicts
    pending, one dispatch at a time.
 4. **rr-9.** Apply D2; exercise the install.sh route locally in a throwaway
@@ -205,8 +205,8 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   interval); repair verdict, pins `fc240a2e..dc85fcf5`: accepted; CI then
   reopened it on evidence neither verdict saw (`rr-10.md`); rework
   verdict, pins `1302b4be..f29784c5`: reopened (Windows create instant;
-  write before identity proof); the repair's verdict is pending (pins in
-  `rr-10.md`).
+  write before identity proof); repair verdict, pins
+  `4fde314f..f12939e3`: accepted.
 - rr-12 verdict, pins `dc85fcf5..23e11dbc`: reopened (configured-path
   precedence; link following); repair verdict, pins `e44b3df6..b2db2dab`:
   reopened (filesystem case sensitivity, whitespace-only value, resolver

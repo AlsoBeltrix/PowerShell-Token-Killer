@@ -1791,7 +1791,9 @@ Describe 'development package layout' {
             $probe = {
                 param($reachable)
                 $caseHome = Join-Path $TestDrive ('rtk-place-' + [guid]::NewGuid().ToString('N'))
-                $placed = Join-Path $caseHome 'local-bin' 'rtk'
+                # Placement names the target as the real fetchers stage it.
+                $leaf = $IsWindows ? 'rtk.exe' : 'rtk'
+                $placed = Join-Path $caseHome 'local-bin' $leaf
                 $result = & ([scriptblock]::Create(
                         "`$ptkHome = '$caseHome/.ptk'; `$rtkMarkerName = '.ptk-installed-rtk'; " +
                         "`$rtkInstallDir = '$caseHome/local-bin'; `$script:finds = 0`n" +
@@ -1800,7 +1802,7 @@ Describe 'development package layout' {
                         "if (`$script:finds -gt 1 -and `$$reachable) { '$placed' } }" +
                         "`nfunction Install-PtkRtkRelease { param(`$Staging) Install-Fake `$Staging }" +
                         "`nfunction Install-PtkRtkWithScript { param(`$Staging) Install-Fake `$Staging }" +
-                        "`nfunction Install-Fake { param(`$s) `$f = Join-Path `$s 'rtk'; " +
+                        "`nfunction Install-Fake { param(`$s) `$f = Join-Path `$s '$leaf'; " +
                         "Set-Content -LiteralPath `$f -Value 'rtk'; `$f }" +
                         "`nfunction Test-PtkRtkAnswers { `$true }" +
                         "`nfunction Update-PtkProcessPath { }" +

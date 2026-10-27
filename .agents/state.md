@@ -33,10 +33,14 @@ healthy local-only. Docs (slice 4) and records (slice 5) followed the
 same day: the SIEM decision entries are archived verbatim in
 `docs/history/decisions-archive.md`, the four SIEM plans are marked
 superseded, and the per-call identity decision is restored as ACTIVE
-(journal content). The removal is complete. Next: the release
-(`0.3.0-rc.6`): exact-source CI green, `release/0.3.0-rc.6`, the
-`Release` workflow draft (seven assets), downloaded-release verification,
-the candidate record, then the owner's publish.
+(journal content). The removal is complete. The release is drafted: exact-source CI `40573611949` green at
+`4c9b2198`, branch `release/0.3.0-rc.6`, `Release` run `40575011312`
+(five native legs and the draft), draft `v0.3.0-rc.6` with seven assets
+and the final notes, downloaded-release verification `40575768473` green
+on all six jobs; record `.agents/release-candidate-0.3.0-rc.6.md`. Waiting
+on the owner's publish; on publication the package channels publish by
+themselves, then the public bootstrap proof (owner-run script) and the
+winget PR move.
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
 auditing or SIEM; their code is to be removed under

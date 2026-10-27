@@ -712,18 +712,72 @@ function Test-PtkRtkAnswers {
 }
 
 # The path of a working rtk on PATH, or $null.
-# A directory's identity on Unix, where PowerShell exposes the inode: with
-# its birth time, since the device is not exposed. A link in the final
-# component is followed, so every spelling, link or junction of one
-# directory answers the same. Needs no write access.
+# Windows exposes no file identity to PowerShell, so a small compiled helper
+# asks the kernel: volume serial number and file index, through a handle
+# that follows a link or junction in the final component. Compiled once.
+function Get-PtkWindowsFileIdentityType {
+    if (-not $script:ptkWindowsFileIdentityType) {
+        $script:ptkWindowsFileIdentityType = Add-Type -Namespace PtkInstaller -Name FileIdentity -PassThru -MemberDefinition @'
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+public struct ByHandleFileInformation
+{
+    public uint FileAttributes;
+    public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+    public uint VolumeSerialNumber;
+    public uint FileSizeHigh;
+    public uint FileSizeLow;
+    public uint NumberOfLinks;
+    public uint FileIndexHigh;
+    public uint FileIndexLow;
+}
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+    string fileName, uint desiredAccess, uint shareMode, System.IntPtr securityAttributes,
+    uint creationDisposition, uint flagsAndAttributes, System.IntPtr templateFile);
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+private static extern bool GetFileInformationByHandle(
+    Microsoft.Win32.SafeHandles.SafeFileHandle handle, out ByHandleFileInformation information);
+
+// No access rights, every share mode, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS
+// (required to open a directory). Links and junctions are followed.
+public static string Identify(string path)
+{
+    using (var handle = CreateFileW(path, 0, 7, System.IntPtr.Zero, 3, 0x02000000, System.IntPtr.Zero))
+    {
+        if (handle.IsInvalid) throw new System.ComponentModel.Win32Exception();
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(handle, out information)) throw new System.ComponentModel.Win32Exception();
+        return information.VolumeSerialNumber + ":" + information.FileIndexHigh + ":" + information.FileIndexLow;
+    }
+}
+'@
+    }
+    $script:ptkWindowsFileIdentityType
+}
+
+# A directory's identity, exact and read-only: device and inode from stat
+# on Unix (following a link in the final component), volume serial number
+# and file index on Windows. Every spelling, link or junction of one
+# directory answers the same; nothing is written. Throws when the directory
+# cannot be identified.
 function Get-PtkDirectoryIdentity {
     param([Parameter(Mandatory)][string]$Directory)
-    $item = Get-Item -LiteralPath $Directory -Force -ErrorAction Stop
-    if ($item.LinkTarget) {
-        $item = Get-Item -LiteralPath $item.ResolveLinkTarget($true).FullName -Force -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) {
+        throw "$Directory is not a directory."
     }
-    if (-not $item.PSIsContainer) { return $null }
-    "$($item.UnixStat.Inode):$($item.CreationTimeUtc.Ticks)"
+    if ($IsWindows) { return (Get-PtkWindowsFileIdentityType)::Identify($Directory) }
+    # Absolute, since callers may run with a replaced PATH.
+    $stat = @('/usr/bin/stat', '/bin/stat') | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+        Select-Object -First 1
+    if (-not $stat) { throw 'stat is not available to identify directories.' }
+    $format = if ($IsMacOS) { @('-L', '-f', '%d:%i') } else { @('-L', '-c', '%d:%i') }
+    $identity = & $stat @format -- $Directory 2>$null
+    if ($LASTEXITCODE -ne 0 -or "$identity" -notmatch '^\d+:\d+$') { throw "stat could not identify $Directory." }
+    "$identity"
 }
 
 # True when $Path lies in the bin/ payload this installer replaces wholesale.
@@ -731,46 +785,25 @@ function Get-PtkDirectoryIdentity {
 # before the installed smoke test starts the server, so relying on it rolls
 # the whole install back (rr-12). Every name on the candidate's link chain
 # counts, starting with the one given: a name inside the payload disappears
-# with it wherever its target lies, and a target inside it goes with it. A
-# directory is matched by identity, never by spelling: inode and birth time
-# on Unix; on Windows, where no identity is exposed, a probe file created in
-# the payload directory (and removed afterwards) must be visible through
-# the directory. A chain that cannot be followed throws.
+# with it wherever its target lies, and a target inside it goes with it.
+# Directories are matched by identity, never by spelling. A chain that
+# cannot be followed throws; forty links are followed, as Linux allows.
 function Test-PtkPayloadRtk {
     param([Parameter(Mandatory)][string]$Path)
     $payloadBin = Join-Path $ptkHome 'bin'
     if (-not (Test-Path -LiteralPath $payloadBin -PathType Container)) { return $false }
-    $probeName = $null
-    if ($IsWindows) {
-        $probeName = '.ptk-rtk-probe-' + [guid]::NewGuid().ToString('N')
-        New-Item -ItemType File -Path (Join-Path $payloadBin $probeName) -Force | Out-Null
-    }
-    else {
-        $payloadIdentity = Get-PtkDirectoryIdentity -Directory $payloadBin
-    }
-    try {
-        $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-        for ($hop = 0; $hop -lt 40; $hop++) {
-            $directory = Split-Path -Parent $item.FullName
-            while ($directory) {
-                $same = if ($IsWindows) {
-                    Test-Path -LiteralPath (Join-Path $directory $probeName) -PathType Leaf
-                }
-                else { (Get-PtkDirectoryIdentity -Directory $directory) -eq $payloadIdentity }
-                if ($same) { return $true }
-                $directory = Split-Path -Parent $directory
-            }
-            if (-not $item.LinkTarget) { return $false }
-            $item = Get-Item -LiteralPath $item.ResolveLinkTarget($false).FullName -Force -ErrorAction Stop
+    $payloadIdentity = Get-PtkDirectoryIdentity -Directory $payloadBin
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    $links = 0
+    while ($true) {
+        $directory = Split-Path -Parent $item.FullName
+        while ($directory) {
+            if ((Get-PtkDirectoryIdentity -Directory $directory) -eq $payloadIdentity) { return $true }
+            $directory = Split-Path -Parent $directory
         }
-        throw "The link chain under $Path exceeds 40 links."
-    }
-    finally {
-        if ($probeName) {
-            $probe = Join-Path $payloadBin $probeName
-            Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
-            if (Test-Path -LiteralPath $probe) { Write-Warning "Could not remove the probe file $probe." }
-        }
+        if (-not $item.LinkTarget) { return $false }
+        if (++$links -gt 40) { throw "The link chain under $Path exceeds 40 links." }
+        $item = Get-Item -LiteralPath $item.ResolveLinkTarget($false).FullName -Force -ErrorAction Stop
     }
 }
 

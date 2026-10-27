@@ -1784,7 +1784,8 @@ Describe 'development package layout' {
         # put rtk in ~/.ptk/bin, which the server never searches, and only
         # after the smoke tests had already started a server without it.
         It 'installs rtk where PATH can reach it, records it, and stops with advice when it cannot' {
-            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk', 'Get-PtkDirectoryIdentity'
+            $names = 'Install-PtkRtk', 'Get-PtkRtkPathAdvice', 'Test-PtkPayloadRtk', 'Get-PtkDirectoryIdentity',
+                'Get-PtkWindowsFileIdentityType'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $probe = {
@@ -1830,8 +1831,8 @@ Describe 'development package layout' {
         # Containment is decided by identity, so every spelling, link or
         # junction of the payload directory counts.
         It 'never relies on an rtk inside the payload it replaces' {
-            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Get-PtkDirectoryIdentity', 'Assert-PtkRtkPathUsable',
-                'Install-PtkRtk', 'Get-PtkRtkPathAdvice'
+            $names = 'Find-PtkRtk', 'Test-PtkPayloadRtk', 'Get-PtkDirectoryIdentity', 'Get-PtkWindowsFileIdentityType',
+                'Assert-PtkRtkPathUsable', 'Install-PtkRtk', 'Get-PtkRtkPathAdvice'
             $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
             $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
             $caseHome = Join-Path $TestDrive ('rtk-payload-' + [guid]::NewGuid().ToString('N'))
@@ -1880,6 +1881,16 @@ Describe 'development package layout' {
                             "if (-not `$IsWindows) { /bin/chmod +x '$localRtk' }; '$localRtk' }" +
                             "`nfunction Update-PtkProcessPath { }" + $run))
                 }
+                # Identity is exact and read-only: the same for the payload
+                # directory and a link to it, different for another directory.
+                $viaDir = Join-Path $caseHome 'via'
+                New-Item -ItemType ($IsWindows ? 'Junction' : 'SymbolicLink') -Path $viaDir -Target $payloadBin | Out-Null
+                $identify = [scriptblock]::Create(($bodies -join "`n") +
+                        "`nGet-PtkDirectoryIdentity -Directory `$args[0]")
+                $payloadIdentity = & $identify $payloadBin
+                $payloadIdentity | Should -Match '^\d+:\d+(:\d+)?$'
+                & $identify $viaDir | Should -Be $payloadIdentity
+                & $identify $otherBin | Should -Not -Be $payloadIdentity
                 & $probe @($payloadBin) $null | Should -Be 'none'
                 & $probe @($payloadBin, $otherBin) $null | Should -Be $otherRtk
                 # Configured-only resolution: PTK_RTK_PATH wins with nothing on PATH.
@@ -1900,8 +1911,6 @@ Describe 'development package layout' {
                 & $probe @($flippedBin) $null | Should -Be ($sameDirectory ? 'none' : $flippedRtk)
                 # A directory link to the payload directory (a junction on
                 # Windows, where symbolic links need a privilege).
-                $viaDir = Join-Path $caseHome 'via'
-                New-Item -ItemType ($IsWindows ? 'Junction' : 'SymbolicLink') -Path $viaDir -Target $payloadBin | Out-Null
                 & $probe @($viaDir) $null | Should -Be 'none'
                 & $probe @($otherBin) (Join-Path $viaDir $rtkName) | Should -Match 'refused: .* inside the ptk payload'
                 # The payload reached through two links.
@@ -1938,16 +1947,28 @@ Describe 'development package layout' {
                     & $probe @($linkDir) $null | Should -Be 'none'
                     & $probe @($otherBin) (Join-Path $linkDir $rtkName) | Should -Match 'refused: .* inside the ptk payload'
                     # A payload directory nobody can write to is still
-                    # recognized: identity needs no probe file on Unix.
+                    # recognized: identity needs no write.
                     /bin/chmod 555 $payloadBin
                     try {
                         & $probe @($payloadBin) $null | Should -Be 'none'
                         & $probe @($viaDir, $otherBin) $null | Should -Be $otherRtk
                     }
                     finally { /bin/chmod 755 $payloadBin }
+                    # Forty links are followed, as Linux allows; the
+                    # forty-first is not.
+                    $chainDir = Join-Path $caseHome 'chain'
+                    New-Item -ItemType Directory -Force -Path $chainDir | Out-Null
+                    $target = $externalRtk
+                    for ($n = 1; $n -le 41; $n++) {
+                        $link = Join-Path $chainDir "link$n"
+                        New-Item -ItemType SymbolicLink -Path $link -Target $target | Out-Null
+                        $target = $link
+                    }
+                    & $probe @($otherBin) (Join-Path $chainDir 'link40') | Should -Be (Join-Path $chainDir 'link40')
+                    & $probe @($otherBin) (Join-Path $chainDir 'link41') | Should -Match 'refused: .* cannot be classified'
                 }
-                # The probe file never outlives the check.
-                Get-ChildItem -LiteralPath $payloadBin -Force -Filter '.ptk-rtk-probe-*' | Should -BeNullOrEmpty
+                # Nothing is ever written into the payload directory.
+                Get-ChildItem -LiteralPath $payloadBin -Force | ForEach-Object Name | Should -Be @($rtkName)
             }
             finally {
                 $env:PATH, $env:PTK_RTK_PATH = $savedPath, $savedRtk

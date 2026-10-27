@@ -214,8 +214,10 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   probe proved existence, not identity; an unguarded loop in the
   stale-copy scan); fourth delta, pins `f29784c5..4fde314f`: reopened (a
   payload name linking outside was accepted; the probe needed write
-  access); the fifth delta walks every link hop with write-free identity
-  on Unix and awaits its verdict (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
+  access); fifth delta, pins `f12939e3..fcce6953`: reopened (inode-only
+  identity; Windows probe write; hop bound off by one); the sixth delta
+  uses exact read-only identity on both platforms and awaits its verdict
+  (pins in `rr-12.md`). rr-13 verdict, pins `22862834..3cfc06a1`:
   pending, dispatched after rr-12 resolves.
 
 ## Pending owner decisions

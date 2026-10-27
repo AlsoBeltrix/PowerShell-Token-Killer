@@ -113,6 +113,22 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
     }
 
     [Fact]
+    public void Empty_control_with_a_second_name_is_rejected_before_it_is_written()
+    {
+        var root = NewProtectedRoot();
+        var path = WriteControl(root, []);
+        var alias = path + ".alias";
+        CreateHardLink(path, alias);
+
+        // An empty control is completed only once the retained handle is
+        // proved to name the one protected control: an aliased one is
+        // rejected without ever being written, through either name.
+        Assert.Throws<IOException>(() => AuditSpoolQuotaLease.CreateControlAndAcquire(root));
+        Assert.Empty(File.ReadAllBytes(path));
+        Assert.Empty(File.ReadAllBytes(alias));
+    }
+
+    [Fact]
     public void Existing_probe_does_not_create_a_missing_control()
     {
         var root = NewProtectedRoot();
@@ -269,4 +285,19 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
 
     private static string ControlPath(string root) =>
         Path.Combine(root, AuditSpoolQuotaLease.ControlFileName);
+
+    private static void CreateHardLink(string existing, string link)
+    {
+        var start = OperatingSystem.IsWindows()
+            ? new System.Diagnostics.ProcessStartInfo("cmd.exe") { ArgumentList = { "/c", "mklink", "/H", link, existing } }
+            : new System.Diagnostics.ProcessStartInfo("ln") { ArgumentList = { existing, link } };
+        start.UseShellExecute = false;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = true;
+        using var process = System.Diagnostics.Process.Start(start)
+            ?? throw new InvalidOperationException("The hard link helper did not start.");
+        process.WaitForExit();
+        if (process.ExitCode != 0 || !File.Exists(link))
+            throw new InvalidOperationException("The hard link helper failed: " + process.StandardError.ReadToEnd());
+    }
 }

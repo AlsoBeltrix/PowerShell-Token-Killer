@@ -19,8 +19,10 @@ holding the creator's exclusive handle across the publish, suite
 1,399/1,399, codex accepted the repair 2026-10-27; then CI run
 `40386199045` showed the temporary name itself is an unknown spool entry
 on ubuntu and macos, so the control is created in place again with an
-empty control meaning creation in progress, suite 1,397/1,397, verdict on
-the rework pending), rr-9 (rtk
+empty control meaning creation in progress (`f29784c5`); codex reopened
+that for the Windows unprotected-create instant and the write before the
+identity proof, repaired the same day, suite 1,398/1,398, verdict on the
+repair pending), rr-9 (rtk
 `install.sh` fetched unpinned from rtk's non-default
 `master`; owner ruling D2; live route proof needs an owner go because auto
 mode refuses executing the external script), rr-11 (macOS slow-seal elapsed

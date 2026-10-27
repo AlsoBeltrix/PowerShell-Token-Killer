@@ -19,12 +19,13 @@ See `.agents/review/findings/rr-12.md`.
 
 ## rr-10 zero-length audit quota control under concurrent start (2026-10-26)
 
-Reopened by CI after codex had accepted `dc85fcf5`: a concurrent creator's
-temporary name is an unknown entry to every spool inventory (ubuntu and
-macos). Reworked: the control is created in place again and an empty
-control counts as creation in progress, which creators complete and
-acquirers wait out. Verdict on the rework pending. See
-`.agents/review/findings/rr-10.md`.
+Reopened by CI after codex had accepted `dc85fcf5` (a creator's temporary
+name is an unknown entry to every spool inventory) and reworked in
+`f29784c5`: in-place creation again, an empty control counts as creation
+in progress. Codex reopened the rework; repaired: Windows creates the
+control with its owner-only descriptor in the create call, and an empty
+control is proved single-link before it is completed. Verdict on the
+repair pending. See `.agents/review/findings/rr-10.md`.
 
 ## rr-9 rtk installer script fetched unpinned (2026-10-26)
 

@@ -177,6 +177,14 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
                     return false;
                 }
 
+                // Prove that the retained handle still names the one
+                // protected control (single link, exact path) before writing
+                // through it: an aliased empty control is rejected, never
+                // completed under every one of its names.
+                VerifyExistingControlPath(root, controlPath);
+                _ = SecureAuditStorage.VerifyRetainedProtectedFileIdentity(
+                    controlPath,
+                    stream.SafeFileHandle);
                 stream.WriteByte(ControlFormatMarker);
                 stream.Flush(flushToDisk: true);
             }

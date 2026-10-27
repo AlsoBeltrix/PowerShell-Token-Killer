@@ -120,7 +120,32 @@ internal static class SecureAuditStorage
             options.UnixCreateMode = OwnerFileMode;
         }
 
-        var stream = new FileStream(path, options);
+        FileStream stream;
+        if (OperatingSystem.IsWindows() && preallocationSize == 0)
+        {
+            // Unix creates the file with its owner-only mode in open(2). On
+            // Windows a plain create gives the name the default DACL until
+            // ProtectFile runs, so a concurrent validator of that name fails
+            // closed instead of seeing a protected file, and a crash in
+            // between strands a file nothing repairs (rr-10, the quota
+            // control). The create call therefore carries the owner-only
+            // descriptor itself; ProtectFile below re-applies the exact
+            // shape. Preallocated files keep the plain create, since the
+            // descriptor-bearing create cannot preallocate.
+            stream = FileSystemAclExtensions.Create(
+                new FileInfo(path),
+                FileMode.CreateNew,
+                FileSystemRights.FullControl,
+                share,
+                options.BufferSize,
+                FileOptions.WriteThrough,
+                CurrentUserOwnerOnlyFileSecurity());
+        }
+        else
+        {
+            stream = new FileStream(path, options);
+        }
+
         try
         {
             ProtectFile(path);
@@ -535,6 +560,30 @@ internal static class SecureAuditStorage
         FlushUnixDirectory(protectedRoot);
         VerifyExternalProtectedDirectory(protectedRoot);
         _ = VerifyRetainedProtectedFileIdentity(publishedPath, publishedHandle);
+    }
+
+    /// <summary>
+    /// The descriptor VerifyWindowsOwnerOnlyAcl accepts, for creating a file
+    /// that is protected from its first instant: current user as owner, a
+    /// protected DACL with one non-inheritable full-control allow for that
+    /// user.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    private static FileSecurity CurrentUserOwnerOnlyFileSecurity()
+    {
+        using var identity = WindowsIdentity.GetCurrent();
+        var currentUser = identity.User
+            ?? throw new IOException("The current Windows user SID is unavailable.");
+        var security = new FileSecurity();
+        security.SetOwner(currentUser);
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        security.AddAccessRule(new FileSystemAccessRule(
+            currentUser,
+            FileSystemRights.FullControl,
+            InheritanceFlags.None,
+            PropagationFlags.None,
+            AccessControlType.Allow));
+        return security;
     }
 
     [SupportedOSPlatform("windows")]

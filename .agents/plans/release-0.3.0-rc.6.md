@@ -107,8 +107,10 @@ package-channel fixes. Resolve the review findings below before tagging.
 2. **rr-10.** `0d498d7d` (atomic publish) and `dc85fcf5` (exclusive
    handle held across the POSIX publish, after the codex reopen; accepted),
    then reopened by CI run `40386199045` (a creator's temporary name is an
-   unknown spool entry) and reworked: in-place creation again, an empty
-   control means creation in progress. Verdict on the rework pending.
+   unknown spool entry) and reworked in `f29784c5`: in-place creation
+   again, an empty control means creation in progress; codex reopened the
+   rework (Windows unprotected-create instant; write before the identity
+   proof), repaired. Verdict on the repair pending.
 3. **rr-12 and rr-13.** Fixed (`23e11dbc`, `3cfc06a1`); codex verdicts
    pending, one dispatch at a time.
 4. **rr-9.** Apply D2; exercise the install.sh route locally in a throwaway
@@ -201,8 +203,10 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   diagnosed or classified test-only on repeated macOS evidence) and D4.
 - rr-10 verdict, pins `eb25ccb0..0d498d7d`: reopened (POSIX two-link
   interval); repair verdict, pins `fc240a2e..dc85fcf5`: accepted; CI then
-  reopened it on evidence neither verdict saw (`rr-10.md`); the rework's
-  verdict is pending (pins in `rr-10.md`).
+  reopened it on evidence neither verdict saw (`rr-10.md`); rework
+  verdict, pins `1302b4be..f29784c5`: reopened (Windows create instant;
+  write before identity proof); the repair's verdict is pending (pins in
+  `rr-10.md`).
 - rr-12 verdict, pins `dc85fcf5..23e11dbc`: reopened (configured-path
   precedence; link following); repair verdict, pins `e44b3df6..b2db2dab`:
   reopened (filesystem case sensitivity, whitespace-only value, resolver

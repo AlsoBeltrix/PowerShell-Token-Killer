@@ -16,7 +16,11 @@ start; server suite 1,398/1,398 on a clean rerun after a loaded first run
 failed two unrelated timing tests once, named in the finding; codex then
 reopened it for the POSIX two-link publish interval, repaired 2026-10-27 by
 holding the creator's exclusive handle across the publish, suite
-1,399/1,399, codex accepted the repair 2026-10-27; closed), rr-9 (rtk
+1,399/1,399, codex accepted the repair 2026-10-27; then CI run
+`40386199045` showed the temporary name itself is an unknown spool entry
+on ubuntu and macos, so the control is created in place again with an
+empty control meaning creation in progress, suite 1,397/1,397, verdict on
+the rework pending), rr-9 (rtk
 `install.sh` fetched unpinned from rtk's non-default
 `master`; owner ruling D2; live route proof needs an owner go because auto
 mode refuses executing the external script), rr-11 (macOS slow-seal elapsed

@@ -104,9 +104,11 @@ package-channel fixes. Resolve the review findings below before tagging.
    rr-9) and codex openreview of this plan (endorsed with the corrections
    now folded into steps 6–7 and D1–D4). Intake per the codereview
    playbook; one finding per commit; codex verdict per fix.
-2. **rr-10.** Done: `0d498d7d` (atomic publish) and `dc85fcf5` (exclusive
-   handle held across the POSIX publish, after the codex reopen); codex
-   accepted; closed.
+2. **rr-10.** `0d498d7d` (atomic publish) and `dc85fcf5` (exclusive
+   handle held across the POSIX publish, after the codex reopen; accepted),
+   then reopened by CI run `40386199045` (a creator's temporary name is an
+   unknown spool entry) and reworked: in-place creation again, an empty
+   control means creation in progress. Verdict on the rework pending.
 3. **rr-12 and rr-13.** Fixed (`23e11dbc`, `3cfc06a1`); codex verdicts
    pending, one dispatch at a time.
 4. **rr-9.** Apply D2; exercise the install.sh route locally in a throwaway
@@ -198,8 +200,9 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
   and hash; drop "keep following `master`"), D3 (rr-11 gates until
   diagnosed or classified test-only on repeated macOS evidence) and D4.
 - rr-10 verdict, pins `eb25ccb0..0d498d7d`: reopened (POSIX two-link
-  interval); repair verdict, pins `fc240a2e..dc85fcf5`: accepted
-  (`.agents/review/findings/rr-10.md`).
+  interval); repair verdict, pins `fc240a2e..dc85fcf5`: accepted; CI then
+  reopened it on evidence neither verdict saw (`rr-10.md`); the rework's
+  verdict is pending (pins in `rr-10.md`).
 - rr-12 verdict, pins `dc85fcf5..23e11dbc`: reopened (configured-path
   precedence; link following); repair verdict, pins `e44b3df6..b2db2dab`:
   reopened (filesystem case sensitivity, whitespace-only value, resolver

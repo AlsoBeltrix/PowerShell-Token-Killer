@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.ExceptionServices;
@@ -30,39 +29,40 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
     /// <summary>
     /// Creates the persistent control when a writer initializes a new spool,
     /// then waits for the same bounded interval used by the journal writer.
-    /// This is the only acquisition path that may create the control. The
-    /// control is published atomically with its marker already complete, so
-    /// a concurrent acquirer never observes a partial control.
+    /// This is the only acquisition path that may create the control, and
+    /// the only one that may complete an empty one. The control is created
+    /// in place; a temporary name is not an option, because every spool
+    /// inventory fails closed on an entry it does not know. On Unix .NET
+    /// takes the exclusive lock only after the name exists, so a concurrent
+    /// acquirer can briefly hold a still-empty control, and a creator can
+    /// crash before its one-byte write: an empty control therefore means
+    /// "creation in progress", which other acquirers wait out and the next
+    /// creator completes under its own exclusive lock.
     /// </summary>
-    internal static AuditSpoolQuotaLease CreateControlAndAcquire(
-        string spoolRoot,
-        Action? controlPublishCheckedForTests = null,
-        Action? controlPublishedForTests = null)
+    internal static AuditSpoolQuotaLease CreateControlAndAcquire(string spoolRoot)
     {
         var root = VerifyExistingRoot(spoolRoot);
         var controlPath = Path.Combine(root, ControlFileName);
-        EnsureControlFile(
-            root,
-            controlPath,
-            controlPublishCheckedForTests,
-            controlPublishedForTests);
-        return AcquireExistingCore(root, controlPath, WriterWait);
+        EnsureControlFile(controlPath);
+        return AcquireExistingCore(root, controlPath, WriterWait, completeEmptyControl: true);
     }
 
     /// <summary>
     /// Waits up to thirty seconds for an already-created quota control. A
-    /// missing, malformed, misprotected, or replaced control fails closed.
+    /// missing, malformed, misprotected, or replaced control fails closed;
+    /// an empty one is still being created and is waited for.
     /// </summary>
     internal static AuditSpoolQuotaLease AcquireExisting(string spoolRoot)
     {
         var root = VerifyExistingRoot(spoolRoot);
         var controlPath = Path.Combine(root, ControlFileName);
-        return AcquireExistingCore(root, controlPath, WriterWait);
+        return AcquireExistingCore(root, controlPath, WriterWait, completeEmptyControl: false);
     }
 
     /// <summary>
     /// Non-creating, nonblocking acquisition for recovery inventory. False
-    /// means only that another process owns the exact persistent control.
+    /// means only that another process owns the exact persistent control or
+    /// is still creating it.
     /// </summary>
     internal static bool TryAcquireExisting(
         string spoolRoot,
@@ -70,7 +70,7 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
     {
         var root = VerifyExistingRoot(spoolRoot);
         var controlPath = Path.Combine(root, ControlFileName);
-        return TryAcquireExistingCore(root, controlPath, out lease, out _);
+        return TryAcquireExistingCore(root, controlPath, completeEmptyControl: false, out lease, out _);
     }
 
     /// <summary>
@@ -106,7 +106,8 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
     private static AuditSpoolQuotaLease AcquireExistingCore(
         string root,
         string controlPath,
-        TimeSpan wait)
+        TimeSpan wait,
+        bool completeEmptyControl)
     {
         var elapsed = Stopwatch.StartNew();
         while (true)
@@ -114,6 +115,7 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
             if (TryAcquireExistingCore(
                     root,
                     controlPath,
+                    completeEmptyControl,
                     out var lease,
                     out var contention))
             {
@@ -133,6 +135,7 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
     private static bool TryAcquireExistingCore(
         string root,
         string controlPath,
+        bool completeEmptyControl,
         [NotNullWhen(true)] out AuditSpoolQuotaLease? lease,
         [NotNullWhen(false)] out IOException? contention)
     {
@@ -162,6 +165,22 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
 
         try
         {
+            if (stream.Length == 0)
+            {
+                // The creator has not written its marker yet, or crashed
+                // first. Only a creator may finish it; everyone else treats
+                // the empty control as owned and retries.
+                if (!completeEmptyControl)
+                {
+                    contention = new IOException(
+                        "The audit spool quota control is still being created.");
+                    return false;
+                }
+
+                stream.WriteByte(ControlFormatMarker);
+                stream.Flush(flushToDisk: true);
+            }
+
             VerifyRetainedControl(root, controlPath, stream);
             lease = new AuditSpoolQuotaLease(root, controlPath, stream);
             stream = null;
@@ -188,73 +207,32 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
         return root;
     }
 
-    private static void EnsureControlFile(
-        string root,
-        string controlPath,
-        Action? publishCheckedForTests,
-        Action? publishedForTests)
+    private static void EnsureControlFile(string controlPath)
     {
         if (EntryExists(controlPath))
             return;
 
-        // The marker is complete and durable before the control name exists.
-        // Writing it in place exposed a zero-length control: on Unix, .NET
-        // emulates FileShare with flock taken after open(2), so a concurrent
-        // acquirer could win the exclusive lock between the creator's open
-        // and its lock, verify a zero-length control, fail closed, and leave
-        // behind a control that no later start repairs (GitHub Actions run
-        // 40377656597, ubuntu, 2026-10-26). The atomic no-replace publish is
-        // the primitive the host identity already uses; a creator that loses
-        // the publish race discards its copy and acquires the winner's.
-        var temporaryPath = Path.Combine(root, $"{ControlFileName}.{Guid.NewGuid():N}.tmp");
+        // Created in place. Publishing a complete control under a temporary
+        // name looked cleaner, but every spool inventory fails closed on an
+        // entry it does not know, and a concurrent creator's pending name is
+        // exactly that (GitHub Actions run 40386199045, ubuntu and macos,
+        // 2026-10-26). In place, on Unix, .NET takes the exclusive lock only
+        // after open(2) has created the name, so a concurrent acquirer can
+        // lock the still-empty control first and this creator's open then
+        // fails as a sharing violation (run 40377656597). The acquisition
+        // that follows handles both outcomes: a creator holding the lock on
+        // an empty control completes it, and every other acquirer retries
+        // while it stays empty.
         try
         {
-            var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath);
-            try
-            {
-                stream.WriteByte(ControlFormatMarker);
-                stream.Flush(flushToDisk: true);
-                if (OperatingSystem.IsWindows())
-                {
-                    // The no-replace move needs the name released (the
-                    // exclusive handle has no delete sharing) and is itself
-                    // atomic: the name appears complete or not at all.
-                    stream.Dispose();
-                }
-
-                // On POSIX the publish is a hard link followed by removal of
-                // the temporary name, so the inode briefly carries two links,
-                // which the exclusive acquisition rejects as an aliased
-                // control (rr-10 reopen). The retained exclusive handle keeps
-                // flock(LOCK_EX) on that inode across the whole publish, so an
-                // acquirer that opens the published name in that interval
-                // meets ordinary lock contention and retries, instead of
-                // failing closed on a control that is about to be valid.
-                SecureAuditStorage.PublishAtomically(
-                    temporaryPath,
-                    controlPath,
-                    root,
-                    publishCheckedForTests,
-                    publishedForTests);
-            }
-            finally
-            {
-                stream.Dispose();
-            }
+            using var stream = SecureAuditStorage.CreateExclusiveFile(controlPath);
+            stream.WriteByte(ControlFormatMarker);
+            stream.Flush(flushToDisk: true);
         }
-        catch (Exception exception)
-            when (exception is IOException or Win32Exception && EntryExists(controlPath))
+        catch (IOException) when (EntryExists(controlPath))
         {
-            // A concurrent creator published the one persistent control. The
-            // exclusive acquisition below validates its exact retained bytes
-            // before trusting it.
-            SecureAuditStorage.TryDelete(temporaryPath);
-            return;
-        }
-        catch
-        {
-            SecureAuditStorage.TryDelete(temporaryPath);
-            throw;
+            // Another creator owns the name, or an acquirer holds the lock on
+            // this creator's empty control; the acquisition completes it.
         }
     }
 

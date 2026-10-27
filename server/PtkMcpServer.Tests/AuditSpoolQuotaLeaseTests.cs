@@ -38,60 +38,18 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
     }
 
     [Fact]
-    public void Writer_creation_never_exposes_a_partial_control()
-    {
-        var root = NewProtectedRoot();
-        var path = ControlPath(root);
-        var observed = false;
-
-        using (AuditSpoolQuotaLease.CreateControlAndAcquire(
-                   root,
-                   controlPublishCheckedForTests: () =>
-                   {
-                       // Just before the atomic publish: the control name does
-                       // not exist yet, so no concurrent acquirer can open a
-                       // zero-length control, and the pending file already
-                       // carries the complete marker.
-                       Assert.False(File.Exists(path));
-                       var pending = Assert.Single(Directory.EnumerateFiles(
-                           root, AuditSpoolQuotaLease.ControlFileName + ".*.tmp"));
-                       // The creator still holds its exclusive handle (on
-                       // POSIX that lock covers the publish), so the pending
-                       // file is inspected by name only; its bytes become the
-                       // published control, checked below.
-                       Assert.Equal(1, new FileInfo(pending).Length);
-                       observed = true;
-                   }))
-        {
-        }
-
-        Assert.True(observed);
-        Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(path));
-        Assert.Empty(Directory.EnumerateFiles(root, "*.tmp"));
-    }
-
-    [Fact]
-    public async Task Concurrent_writer_creations_converge_on_one_control_without_temporary_files()
+    public async Task Concurrent_writer_creations_converge_on_one_control_and_nothing_else()
     {
         var root = NewProtectedRoot();
         var path = ControlPath(root);
         using var start = new ManualResetEventSlim(initialState: false);
-        using var publishing = new Barrier(participantCount: 8);
         var creators = Enumerable.Range(0, 8)
             .Select(_ => Task.Factory.StartNew(
                 () =>
                 {
                     start.Wait();
-                    // Every creator writes its own complete temporary marker,
-                    // then all eight publish at once: one wins the name, the
-                    // rest discard their copies and acquire the winner's.
-                    using var lease = AuditSpoolQuotaLease.CreateControlAndAcquire(
-                        root,
-                        controlPublishCheckedForTests: () =>
-                        {
-                            if (!publishing.SignalAndWait(TimeSpan.FromSeconds(10)))
-                                throw new TimeoutException("Concurrent control creators did not rendezvous.");
-                        });
+                    using var lease = AuditSpoolQuotaLease.CreateControlAndAcquire(root);
+                    lease.VerifyOwnership();
                 },
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
@@ -102,49 +60,56 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
         await Task.WhenAll(creators).WaitAsync(TimeSpan.FromSeconds(60));
 
         Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(path));
-        Assert.Empty(Directory.EnumerateFiles(root, "*.tmp"));
+        // The spool root tolerates no entry it does not know, so creation
+        // may never leave anything beside the control, even transiently
+        // (CI run 40386199045 failed a concurrent factory on a pending
+        // temporary name).
+        Assert.Equal([path], Directory.EnumerateFileSystemEntries(root).ToArray());
     }
 
     [Fact]
-    public async Task Acquirers_during_control_publication_wait_instead_of_failing()
+    public async Task Empty_control_counts_as_creation_in_progress_until_a_writer_completes_it()
     {
         var root = NewProtectedRoot();
-        var path = ControlPath(root);
-        bool? probeAcquired = null;
-        Task<bool>? waiter = null;
+        var path = WriteControl(root, []);
 
-        var creator = AuditSpoolQuotaLease.CreateControlAndAcquire(
-            root,
-            controlPublishedForTests: () =>
+        // A non-creating probe sees an owner, not a malformed control, and
+        // a blocking acquirer waits instead of failing closed.
+        Assert.False(AuditSpoolQuotaLease.TryAcquireExisting(root, out var probe));
+        Assert.Null(probe);
+        Assert.Empty(File.ReadAllBytes(path));
+        var waiter = Task.Run(() => AuditSpoolQuotaLease.AcquireExisting(root));
+        try
+        {
+            await Task.Delay(150);
+            Assert.False(waiter.IsCompleted);
+
+            // The next creator completes the control under its own lock;
+            // the bytes are read once no lease holds that lock.
+            using (var creator = AuditSpoolQuotaLease.CreateControlAndAcquire(root))
             {
-                // The control name exists. On POSIX the temporary name still
-                // does too, so the inode carries two links until the creator
-                // removes it: an acquirer must meet lock contention here,
-                // never an aliased control that fails closed. Windows has no
-                // such interval, so the probe simply acquires the complete
-                // control.
-                probeAcquired = AuditSpoolQuotaLease.TryAcquireExisting(root, out var probe);
-                probe?.Dispose();
-                waiter = Task.Factory.StartNew(
-                    () =>
-                    {
-                        using var lease = AuditSpoolQuotaLease.AcquireExisting(root);
-                        return true;
-                    },
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default);
-                // Let the blocking acquirer retry several times inside the
-                // interval (its retry delay is 25 ms).
-                Thread.Sleep(250);
-            });
-        creator.Dispose();
+                creator.VerifyOwnership();
+            }
 
-        Assert.Equal(OperatingSystem.IsWindows(), probeAcquired);
-        Assert.NotNull(waiter);
-        Assert.True(await waiter!.WaitAsync(TimeSpan.FromSeconds(60)));
+            using (var acquired = await waiter.WaitAsync(TimeSpan.FromSeconds(10)))
+            {
+                acquired.VerifyOwnership();
+            }
+        }
+        finally
+        {
+            try
+            {
+                using var cleanup = await waiter.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch
+            {
+                // Preserve the primary assertion or acquisition failure.
+            }
+        }
+
         Assert.Equal(new byte[] { 0x50 }, File.ReadAllBytes(path));
-        Assert.Empty(Directory.EnumerateFiles(root, "*.tmp"));
+        Assert.Equal([path], Directory.EnumerateFileSystemEntries(root).ToArray());
     }
 
     [Fact]
@@ -270,9 +235,10 @@ public sealed class AuditSpoolQuotaLeaseTests : IDisposable
         Assert.Throws<IOException>(lease.Dispose);
     }
 
+    // An empty control is not malformed: it is still being created (see
+    // Empty_control_counts_as_creation_in_progress_until_a_writer_completes_it).
     public static TheoryData<byte[]> MalformedControls => new()
     {
-        Array.Empty<byte>(),
         new byte[] { 0x51 },
         new byte[] { 0x50, 0x00 },
     };

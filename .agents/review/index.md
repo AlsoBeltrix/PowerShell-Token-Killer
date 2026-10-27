@@ -18,10 +18,11 @@ two codex reopens. Verdict on the third delta pending. See
 
 ## rr-10 zero-length audit quota control under concurrent start (2026-10-26)
 
-Closed: atomic publication of the complete control (`0d498d7d`), then, after
-codex reopened it for the POSIX two-link publish interval, the creator's
-exclusive handle is held across the publish so acquirers meet lock
-contention and retry (`dc85fcf5`, codex accepted). Three guards. See
+Reopened by CI after codex had accepted `dc85fcf5`: a concurrent creator's
+temporary name is an unknown entry to every spool inventory (ubuntu and
+macos). Reworked: the control is created in place again and an empty
+control counts as creation in progress, which creators complete and
+acquirers wait out. Verdict on the rework pending. See
 `.agents/review/findings/rr-10.md`.
 
 ## rr-9 rtk installer script fetched unpinned (2026-10-26)

@@ -55,8 +55,10 @@ directory; reopened again for a Windows fetcher bug the repair had
 introduced (a scratch variable shadowing the staging parameter) and two
 pathname windows, repaired by reusing the installer's own copy instead of
 deleting by name and by claiming the staged bytes before the move, with
-both fetchers now tested under stubbed downloads; verdict on the third
-delta pending). Codex ran
+both fetchers now tested under stubbed downloads; reopened a third time
+for uninstall's hash-then-delete by path, repaired by setting the file
+aside under a private name before verifying and deleting it; verdict on
+the fourth delta pending). Codex ran
 every dispatch 2026-10-27 after `codex login` (plan dispatch record):
 rr-10 reopened, repaired and accepted; three installer candidates (rr-12,
 rr-13, a duplicate of rr-9); the plan review endorsed rc.6 with corrections

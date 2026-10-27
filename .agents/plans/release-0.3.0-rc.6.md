@@ -119,8 +119,10 @@ package-channel fixes. Resolve the review findings below before tagging.
    reopened again (the repair's Windows fetcher shadowed its staging
    parameter; two pathname windows) and repaired (reuse instead of
    delete; the marker claims the staged bytes before the move; both
-   fetchers tested with stubbed downloads); verdict on the third delta
-   pending.
+   fetchers tested with stubbed downloads), then reopened a third time
+   (uninstall deleted by path after hashing by path) and repaired (the
+   file is set aside under a private name, verified, then deleted or put
+   back); verdict on the fourth delta pending.
 4. **rr-9.** Apply D2; exercise the install.sh route locally in a throwaway
    home with no rtk on `PATH` (owner go needed to execute the external
    script under auto mode); add the same to CI on ubuntu and macos.
@@ -218,8 +220,9 @@ hook's `PTK_DIRECT` escape (ptk disabled for the run), read-only git only.
 - rr-13 verdict, pins `22862834..3cfc06a1`: reopened (ownership by string
   compare; no check at the write boundary); repair verdict, pins
   `bd6a6d50..50561983`: reopened (Windows fetcher parameter shadowed by
-  a local; check-then-delete and move-then-hash windows); the third
-  delta's verdict is pending (pins in `rr-13.md`).
+  a local; check-then-delete and move-then-hash windows); third delta,
+  pins `50561983..e8b65e4d`: reopened (uninstall's hash-then-delete by
+  path); the fourth delta's verdict is pending (pins in `rr-13.md`).
 - rr-12 verdict, pins `dc85fcf5..23e11dbc`: reopened (configured-path
   precedence; link following); repair verdict, pins `e44b3df6..b2db2dab`:
   reopened (filesystem case sensitivity, whitespace-only value, resolver

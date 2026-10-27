@@ -2,15 +2,16 @@
 
 ## rr-13 user's rtk at the install target overwritten and adopted (2026-10-27)
 
-Fixed on `master` in three commits: the installer refuses a copy at the
+Fixed on `master` in four commits: the installer refuses a copy at the
 install target that it did not place (ownership by directory identity,
 name and hash), reuses its own earlier copy without deleting anything by
-name, and places a fetched rtk from a staging directory beside the target
+name, places a fetched rtk from a staging directory beside the target
 with a move that never overwrites, claimed by the marker with the staged
-bytes' hash beforehand; the Windows fetcher's parameter shadowing found
-by the second reopen is fixed and both fetchers are now tested with
-stubbed downloads. Verdict on the third delta pending. See
-`.agents/review/findings/rr-13.md`.
+bytes' hash beforehand, and at uninstall verifies and removes the placed
+rtk under a private name so the deleted file is the verified one; the
+Windows fetcher's parameter shadowing found by the second reopen is fixed
+and both fetchers are tested with stubbed downloads. Verdict on the
+fourth delta pending. See `.agents/review/findings/rr-13.md`.
 
 ## rr-12 payload-resident rtk accepted, then deleted by the upgrade (2026-10-27)
 

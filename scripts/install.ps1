@@ -712,20 +712,53 @@ function Test-PtkRtkAnswers {
 }
 
 # The path of a working rtk on PATH, or $null.
+# The path with every symbolic link (file or directory component) followed,
+# so a link outside the payload that points into it is still recognized.
+function Resolve-PtkRealPath {
+    param([Parameter(Mandatory)][string]$Path)
+    $full = [IO.Path]::GetFullPath($Path)
+    for ($pass = 0; $pass -lt 16; $pass++) {
+        $root = [IO.Path]::GetPathRoot($full)
+        $current = $root
+        $changed = $false
+        foreach ($part in ($full.Substring($root.Length) -split '[\\/]' | Where-Object { $_ })) {
+            $current = Join-Path $current $part
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue
+            if ($item -and $item.LinkTarget) {
+                $target = $item.ResolveLinkTarget($true)
+                if ($target) { $current = $target.FullName; $changed = $true }
+            }
+        }
+        $full = [IO.Path]::GetFullPath($current)
+        if (-not $changed) { break }
+    }
+    $full
+}
+
 # True for a path inside the bin/ payload this installer replaces wholesale.
 # Installers before 2026-10-24 put rtk there; an upgrade deletes that copy
 # before the installed smoke test starts the server, so relying on it rolls
-# the whole install back (rr-12).
+# the whole install back (rr-12). Links are followed on both sides. Case is
+# ignored except on Linux: a false match only costs a redundant install
+# into $rtkInstallDir, while a miss reproduces the rollback.
 function Test-PtkPayloadRtk {
     param([Parameter(Mandatory)][string]$Path)
-    $payloadBin = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath((Join-Path $ptkHome 'bin')))
+    $payloadBin = [IO.Path]::TrimEndingDirectorySeparator((Resolve-PtkRealPath -Path (Join-Path $ptkHome 'bin')))
     $comparison = if ($IsLinux) { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
-    [IO.Path]::GetFullPath($Path).StartsWith($payloadBin + [IO.Path]::DirectorySeparatorChar, $comparison)
+    (Resolve-PtkRealPath -Path $Path).StartsWith($payloadBin + [IO.Path]::DirectorySeparatorChar, $comparison)
 }
 
+# Resolves rtk as the server does (RtkDependency): PTK_RTK_PATH, when set, is
+# the only candidate, with no PATH fallback; otherwise the first rtk on PATH.
+# Anything inside the payload is never a candidate.
 function Find-PtkRtk {
-    # Every rtk on PATH in order, as the server searches, minus any inside the
-    # payload: the first one that answers is the one the installed server uses.
+    if ($env:PTK_RTK_PATH) {
+        $configured = $env:PTK_RTK_PATH
+        if (-not (Test-PtkPayloadRtk -Path $configured) -and
+            (Test-Path -LiteralPath $configured -PathType Leaf) -and
+            (Test-PtkRtkAnswers -Path $configured)) { return $configured }
+        return $null
+    }
     foreach ($candidate in @(Get-Command rtk -All -CommandType Application -ErrorAction SilentlyContinue)) {
         if (Test-PtkPayloadRtk -Path $candidate.Source) { continue }
         if (Test-PtkRtkAnswers -Path $candidate.Source) { return $candidate.Source }
@@ -733,12 +766,20 @@ function Find-PtkRtk {
     $null
 }
 
-# The server takes PTK_RTK_PATH over PATH with no fallback, so a value inside
-# the payload would stop the installed server the moment bin/ is replaced.
-function Assert-PtkRtkPathOutsidePayload {
-    if (-not $env:PTK_RTK_PATH -or -not (Test-PtkPayloadRtk -Path $env:PTK_RTK_PATH)) { return }
-    throw ("PTK_RTK_PATH points at $env:PTK_RTK_PATH, inside the ptk payload ($ptkHome/bin) that " +
-        'this install replaces. Unset it, or point it at an rtk outside that directory, and re-run this installer.')
+# A PTK_RTK_PATH the server cannot use stops the installed server no matter
+# what this installer places elsewhere, so it is refused before any question.
+function Assert-PtkRtkPathUsable {
+    $configured = $env:PTK_RTK_PATH
+    if (-not $configured) { return }
+    $why = if (Test-PtkPayloadRtk -Path $configured) {
+        "is inside the ptk payload ($ptkHome/bin) that this install replaces"
+    }
+    elseif (-not (Test-Path -LiteralPath $configured -PathType Leaf)) { 'does not exist' }
+    elseif (-not (Test-PtkRtkAnswers -Path $configured)) { "does not answer 'rtk rewrite'" }
+    if (-not $why) { return }
+    throw ("PTK_RTK_PATH is set to $configured, which $why. ptk uses only PTK_RTK_PATH when it is set, " +
+        'so installing rtk elsewhere would not help. Unset it, or point it at a working rtk outside ' +
+        'the payload, and re-run this installer.')
 }
 
 # The fetch overwrites rtk at the install target. A copy already there that
@@ -1358,7 +1399,7 @@ Assert-PtkRuntimeNotRunning
         # machine untouched. rtk is installed before staging because the
         # smoke tests start the server, which refuses to start without it.
         if (-not $FromRelease) { Assert-PtkNativeToolchain -TargetRid $targetRid }
-        Assert-PtkRtkPathOutsidePayload
+        Assert-PtkRtkPathUsable
         Assert-PtkRtkConsent
         if (-not $FromRelease) { Assert-PtkDotnetSdk }
         Install-PtkRtk -TargetRid $targetRid

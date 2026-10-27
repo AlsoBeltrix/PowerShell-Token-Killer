@@ -1,5 +1,12 @@
 # Review status
 
+## rr-13 user's rtk at the install target overwritten and adopted (2026-10-27)
+
+Fixed on `master`: before fetching rtk, the installer refuses a copy at the
+install target that it did not place (marker path and hash), instead of
+overwriting it and deleting it on uninstall; guard added. Codex verdict
+pending. See `.agents/review/findings/rr-13.md`.
+
 ## rr-12 payload-resident rtk accepted, then deleted by the upgrade (2026-10-27)
 
 Fixed on `master`: the installer's rtk lookup skips `~/.ptk/bin` (the

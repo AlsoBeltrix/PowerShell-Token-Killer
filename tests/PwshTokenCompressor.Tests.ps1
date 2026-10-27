@@ -1772,6 +1772,7 @@ Describe 'development package layout' {
                 & ([scriptblock]::Create(
                         "`$rtkInstallDir = 'rtk-dir'`n" + $body +
                         "`nfunction Find-PtkRtk { `$null }" +
+                        "`nfunction Assert-PtkRtkTargetFree { }" +
                         "`nfunction Confirm-PtkPrerequisiteInstall { `$$agree }" +
                         "`nAssert-PtkRtkConsent"))
             }
@@ -1858,6 +1859,41 @@ Describe 'development package layout' {
             finally {
                 $env:PATH, $env:PTK_RTK_PATH = $savedPath, $savedRtk
             }
+        }
+
+        # The fetch overwrites rtk at the install target. A copy there that
+        # this installer did not place is the user's own, merely unreachable;
+        # overwriting it would also let uninstall delete it later.
+        It 'refuses to overwrite an rtk it did not place at the install target' {
+            $names = 'Assert-PtkRtkConsent', 'Assert-PtkRtkTargetFree'
+            $bodies = foreach ($name in $names) { & $extractFunction $installerSource $name }
+            $bodies | ForEach-Object { $_ | Should -Not -BeNullOrEmpty }
+            $probe = {
+                param($existing, $marker)
+                $caseHome = Join-Path $TestDrive ('rtk-target-' + [guid]::NewGuid().ToString('N'))
+                $dir = Join-Path $caseHome 'local-bin'
+                New-Item -ItemType Directory -Force -Path $dir, (Join-Path $caseHome '.ptk') | Out-Null
+                $target = Join-Path $dir ($IsWindows ? 'rtk.exe' : 'rtk')
+                if ($existing) { Set-Content -LiteralPath $target -Value 'rtk' -NoNewline }
+                if ($marker) {
+                    $hash = if ($marker -eq 'ours') {
+                        (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+                    }
+                    else { 'f' * 64 }
+                    Set-Content -LiteralPath (Join-Path $caseHome '.ptk' '.ptk-installed-rtk') `
+                        -Value "$target`n$hash" -NoNewline
+                }
+                & ([scriptblock]::Create(
+                        "`$ptkHome = '$caseHome/.ptk'; `$rtkMarkerName = '.ptk-installed-rtk'; " +
+                        "`$rtkInstallDir = '$dir'`n" + ($bodies -join "`n") +
+                        "`nfunction Find-PtkRtk { `$null }" +
+                        "`nfunction Confirm-PtkPrerequisiteInstall { `$true }" +
+                        "`ntry { Assert-PtkRtkConsent; 'ok' } catch { `$_.Exception.Message }"))
+            }
+            & $probe $false $null | Should -Be 'ok'
+            & $probe $true 'ours' | Should -Be 'ok'
+            & $probe $true $null | Should -Match 'already exists at .* not the copy this installer placed'
+            & $probe $true 'replaced' | Should -Match 'already exists at'
         }
 
         It 'gives the PATH fix for the platform' {

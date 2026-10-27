@@ -741,9 +741,29 @@ function Assert-PtkRtkPathOutsidePayload {
         'this install replaces. Unset it, or point it at an rtk outside that directory, and re-run this installer.')
 }
 
+# The fetch overwrites rtk at the install target. A copy already there that
+# this installer did not place (no marker, or another hash) is the user's
+# own, merely unreachable from PATH; overwriting it would also let uninstall
+# delete it later (rr-13). The installer's own earlier copy may be replaced.
+function Assert-PtkRtkTargetFree {
+    $target = Join-Path $rtkInstallDir ($IsWindows ? 'rtk.exe' : 'rtk')
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) { return }
+    $marker = Join-Path $ptkHome $rtkMarkerName
+    if (Test-Path -LiteralPath $marker) {
+        $ours, $hash = @((Get-Content -LiteralPath $marker -Raw).Trim() -split '\r?\n')
+        if ($ours -eq $target -and $hash -and
+            $hash -ceq (Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()) { return }
+    }
+    throw ("rtk already exists at $target, but it is not the copy this installer placed and ptk " +
+        "cannot use it: its directory is not on PATH, or it does not answer 'rtk rewrite'. " +
+        "Add $rtkInstallDir to PATH, or remove that file, and re-run this installer.")
+}
+
 # Asked before anything is staged, so declining leaves the machine untouched.
+# The target check needs no answer, so it precedes the question.
 function Assert-PtkRtkConsent {
     if (Find-PtkRtk) { return }
+    Assert-PtkRtkTargetFree
     $how = if ($IsWindows) { "Download the latest release from github.com/rtk-ai/rtk into $rtkInstallDir" }
     else { "Run rtk's installer (install.sh from github.com/rtk-ai/rtk), which installs it into $rtkInstallDir" }
     $question = "rtk (required) is not on PATH. $how?"

@@ -5,8 +5,6 @@
 
 # R0 contract artifacts are byte-exact inputs and must survive every checkout.
 server/Contracts/ResilienceR0/*.json text eol=lf
-server/Contracts/ResilienceR0/*.jsonl text eol=lf
-server/Contracts/ResilienceR0/*.yaml text eol=lf
 # The digest covers the artifact's exact bytes and is itself compared exactly,
 # so a CRLF checkout of either side breaks the comparison.
 server/Contracts/ResilienceR0/*.sha256 text eol=lf

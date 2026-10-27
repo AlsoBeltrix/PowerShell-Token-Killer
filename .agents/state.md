@@ -19,8 +19,17 @@ since: the direct-download installer change (`3f465431`, codex accepted,
 closes rr-9) and removal slice 1 (the `siem/` receiver product, its CI job,
 its release legs, the asset scripts' counts, and the receiver halves of the
 proof scripts; build-identity proof and the asset scripts' tests pass).
-Next: removal slice 2 (export destinations and coordinator, the web UI,
-alerts, `ptk-audit-admin`, the destination script), then docs, then the
+Removal slice 2 landed the same day: `Audit/Export/**`, `Audit/Web/**`,
+`ExportRetentionFloor`, the `ptk-audit-admin` CLI (its engine
+`AuditAdminOperations` stays with the journal's dispositions), the
+destination script and its installer copy, `AUDIT-EXPORT.md`, the SIEM
+interop fixtures and eleven export-only test files; `Program.cs` wires the
+gate and the supervisor lifecycle only (two hosted services); the journal's
+retention no longer consults export floors (a journal with no destination
+never had any) and the undelivered-eviction counter is a constant zero
+kept for `ptk_state`'s shape. Verified: build clean, server suite 1,288
+(109 export tests gone), Pester 134, handshake green with the journal
+healthy local-only. Next: docs (slice 4), records (slice 5), then the
 release.
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on

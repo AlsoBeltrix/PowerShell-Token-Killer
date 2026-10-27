@@ -525,47 +525,23 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
             throw new IOException("Anchored audit allocation capacity is exhausted.");
 
         // Physical allocation pressure is capacity pressure like any other
-        // (R4, closing a hole adjacent to cr4-4): delivered segments go
-        // first per the exporter's per-boot floors, and an UNDELIVERED
-        // deletion is counted and announced — never silent.
-        var floors = ExportRetentionFloor.ReadFloors(_options.RootDirectory);
+        // (R4, closing a hole adjacent to cr4-4): closed segments go in
+        // deletion-front order. (The export floors that once protected
+        // undelivered segments went with the SIEM integration, 2026-10-27;
+        // a journal with no destination never had any.)
         while (committed > AggregateCapacityBytes - SegmentCapacityBytes)
         {
             var deleted = false;
-            var deletedUndelivered = false;
             foreach (var segment in EnumerateDeletionFronts(excludedPath: null))
             {
-                if (ExportRetentionFloor.IsRequired(segment.Segment.Name, floors))
-                    continue;
                 if (!TryDeleteClosedSegment(segment.Segment))
                     continue;
                 deleted = true;
                 break;
             }
-            if (!deleted)
-            {
-                foreach (var segment in EnumerateDeletionFronts(excludedPath: null))
-                {
-                    if (!TryDeleteClosedSegment(segment.Segment))
-                        continue;
-                    deleted = true;
-                    deletedUndelivered = ExportRetentionFloor.IsRequired(
-                        segment.Segment.Name,
-                        floors);
-                    break;
-                }
-            }
 
             if (!deleted)
                 throw new IOException("Audit allocation capacity is exhausted by live segments.");
-            if (deletedUndelivered)
-            {
-                Interlocked.Increment(ref _undeliveredEvictions);
-                Console.Error.WriteLine(
-                    "[ptk audit] segment allocation pressure evicted a segment the exporter " +
-                    "had not delivered; those records are lost to the destination and are " +
-                    "reported in ptk_state and the journal.");
-            }
 
             committed = PhysicalCommittedBytes(EnumerateSegments());
         }
@@ -1128,69 +1104,34 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         foreach (var segment in candidates)
             TryTrimClosedSegment(segment);
 
-        // Age alone NEVER destroys records the exporter has not delivered
-        // (audit-restoration R3d): ten review rounds showed that detecting
-        // such loss afterwards is intrinsically leaky, so retention stops
-        // creating it. A missing or unreadable cursor yields no floors and
-        // the prior behaviour, because the journal must not depend on the
-        // exporter's bookkeeping. Floors are PER BOOT (cr4-4 reopen): any
-        // cross-boot ordering keyed on remaining files mutates as delivered
-        // segments are deleted, so no such ordering may decide retention.
-        var floors = ExportRetentionFloor.ReadFloors(_options.RootDirectory);
+        // Age-based retention. (Export floors, which once kept undelivered
+        // segments past their age, went with the SIEM integration on
+        // 2026-10-27; a journal with no destination never had any.)
         DeleteEligiblePrefixSegments(segment =>
-            !ExportRetentionFloor.IsRequired(segment.Name, floors) &&
             now - new DateTimeOffset(segment.LastWriteTimeUtc, TimeSpan.Zero) >= _options.RetentionAge);
 
         if (TotalBytesUnderQuotaLock() <= AggregateCapacityBytes - requiredReservedBytes)
             return;
 
-        // Capacity pressure is the one case that may still evict undelivered
-        // records: the alternative is refusing to journal, which would let a
-        // SIEM outage stop execution — forbidden by contract rule 2. Delivered
-        // segments are always evicted first; an undelivered eviction is a
-        // last resort and is announced on stderr so it is never silent. The
-        // exporter's chain-continuity detection then proves the loss.
-        var evictedUndelivered = false;
+        // Capacity pressure evicts closed segments in deletion-front order:
+        // the alternative is refusing to journal, which would stop execution.
         while (TotalBytesUnderQuotaLock() > AggregateCapacityBytes - requiredReservedBytes)
         {
-            if (TryEvictOne(deliveredOnly: true, floors))
-                continue;
-            if (!TryEvictOne(deliveredOnly: false, floors))
+            if (!TryEvictOne())
                 return;
-            evictedUndelivered = true;
-        }
-
-        if (evictedUndelivered)
-        {
-            // Counted, not just printed: stderr is invisible to an operator
-            // in practice, and this is exactly the class of fact the
-            // reporting contract says must reach a surface people read
-            // (ptk_state now; the web GUI and webhook in R4).
-            Interlocked.Increment(ref _undeliveredEvictions);
-            Console.Error.WriteLine(
-                "[ptk audit] the audit spool reached its capacity bound and evicted " +
-                "segments the exporter had not delivered; those records are lost to " +
-                "the destination and are reported in ptk_state.");
         }
     }
 
-    private long _undeliveredEvictions;
+    /// <summary>Segment evictions that discarded records an exporter had not
+    /// delivered. Always zero since the SIEM integration went (2026-10-27):
+    /// no destination exists for a segment to be undelivered to. Kept so the
+    /// audit health snapshot and <c>ptk_state</c> keep their shape.</summary>
+    internal long UndeliveredEvictions => 0;
 
-    /// <summary>Segment evictions that discarded records the exporter had not
-    /// delivered. Surfaced through audit health so an operator sees it
-    /// without reading the server's stderr.</summary>
-    internal long UndeliveredEvictions => Interlocked.Read(ref _undeliveredEvictions);
-
-    private bool TryEvictOne(
-        bool deliveredOnly,
-        IReadOnlyDictionary<Guid, ExportRetentionFloor.BootFloor>? floors)
+    private bool TryEvictOne()
     {
         foreach (var segment in EnumerateDeletionFronts(_currentSegmentPath))
         {
-            if (deliveredOnly && ExportRetentionFloor.IsRequired(
-                    segment.Segment.Name,
-                    floors))
-                continue;
             if (!TryDeleteClosedSegment(segment.Segment))
                 continue;
             return true;

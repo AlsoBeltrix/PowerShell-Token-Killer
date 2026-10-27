@@ -32,7 +32,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="PtkMcpServer.Tests" />
     <InternalsVisibleTo Include="PtkContainmentTestFixture" />
-    <InternalsVisibleTo Include="PtkAuditAdmin" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(OS)' != 'Windows_NT'">

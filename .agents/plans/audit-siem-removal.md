@@ -205,7 +205,7 @@ pushed before the next starts.
    drop the SIEM column from the release-notes template. The server still
    exports to a configured destination at this point; nothing in the server
    changes.
-2. **Remove export, the web UI, alerts, attribution and the admin CLI.**
+2. **DONE 2026-10-27 (narrowed: attribution and `AuditAdminOperations` stay with the journal; only the CLI front end went) — Remove export, the web UI, alerts and the admin CLI.**
    Delete `Audit/Export/**`, `Audit/Web/**`, the alert webhook,
    `PtkAuditAdmin`, `scripts/ptk-audit-destination.ps1` (and its installer
    copy and `RuntimePackageBoundaryTests` assertion), `AUDIT-EXPORT.md`, the

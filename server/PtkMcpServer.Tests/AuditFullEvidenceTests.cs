@@ -2,14 +2,13 @@ using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
-using PtkMcpServer.Audit.Export;
 
 namespace PtkMcpServer.Tests;
 
 public sealed class AuditFullEvidenceTests
 {
     [Fact]
-    public async Task Terminal_v5_exports_exact_command_response_and_output_artifact()
+    public async Task Terminal_v5_records_exact_command_response_and_output_artifact()
     {
         var parent = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -106,44 +105,6 @@ public sealed class AuditFullEvidenceTests
                 Assert.Equal("ptk.audit/5", root.GetProperty("schema_version").GetString());
                 Assert.Equal(3, root.GetProperty("evidence_manifest").GetArrayLength());
             }
-
-            Assert.True(AuditEvidenceEnvelope.TryExpand(
-                [terminal],
-                provider,
-                out var expanded,
-                out var failure), failure);
-            Assert.Equal(4, expanded.Count);
-            var evidenceByKind = expanded.Skip(1)
-                .Select(record => JsonDocument.Parse(record))
-                .ToDictionary(
-                    document => document.RootElement.GetProperty("evidence_kind").GetString()!,
-                    document => document);
-            try
-            {
-                Assert.Equal(
-                    "'exact command'",
-                    Payload(evidenceByKind["submitted_command"]));
-                Assert.Equal(
-                    "caller-visible response",
-                    Payload(evidenceByKind["caller_response"]));
-                Assert.Equal(
-                    string.Join(
-                        Environment.NewLine,
-                        "unshaped output",
-                        "[exit] 7",
-                        "[stderr]",
-                        "native stderr",
-                        "[errors]",
-                        "powershell error",
-                        "[warnings]",
-                        "warning"),
-                    Payload(evidenceByKind["captured_output"]));
-            }
-            finally
-            {
-                foreach (var document in evidenceByKind.Values)
-                    document.Dispose();
-            }
         }
         finally
         {
@@ -151,8 +112,4 @@ public sealed class AuditFullEvidenceTests
                 Directory.Delete(parent, recursive: true);
         }
     }
-
-    private static string Payload(JsonDocument document) =>
-        Encoding.UTF8.GetString(
-            document.RootElement.GetProperty("payload_base64").GetBytesFromBase64());
 }

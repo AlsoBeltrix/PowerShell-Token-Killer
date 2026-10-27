@@ -1,5 +1,4 @@
 using System.Runtime.ExceptionServices;
-using PtkMcpServer.Audit.Export;
 
 namespace PtkMcpServer.Audit;
 
@@ -33,8 +32,7 @@ internal sealed class AuditRuntimeResources : IDisposable
         AuditOptions options,
         AuditHealth health,
         string producerVersion,
-        ScriptEvidenceStoreProvider evidence,
-        AuditDestinationRegistry? destinations = null)
+        ScriptEvidenceStoreProvider evidence)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -59,7 +57,7 @@ internal sealed class AuditRuntimeResources : IDisposable
             health,
             producerVersion,
             evidence,
-            destinations is null ? null : destinations.EnabledDestinationIds);
+            null);
             var resources = new AuditRuntimeResources(journal);
             journal = null;
             return resources;

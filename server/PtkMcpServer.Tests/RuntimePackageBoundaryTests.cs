@@ -33,7 +33,7 @@ public sealed class RuntimePackageBoundaryTests
         Assert.DoesNotContain("destinations.json", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("ptk-siem-receiver-", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("New-Service", installer, StringComparison.Ordinal);
-        Assert.Contains("ptk-audit-destination.ps1", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("ptk-audit-destination.ps1", installer, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -124,24 +124,17 @@ public sealed class RuntimePackageBoundaryTests
             "PtkMcpServer",
             "Program.cs"));
 
-        // Exactly five hosted services: the audit runtime gate (registered
+        // Exactly two hosted services: the audit runtime gate (registered
         // first — audit startup is durable before session infrastructure;
-        // audit-restoration R2), the audit export coordinator (R3, additive and
-        // non-gating), the loopback audit web UI and the alert webhook (R4,
-        // both incapable of gating execution), and the supervisor lifecycle.
-        // Idle lifecycle machinery stays banned below.
+        // audit-restoration R2) and the supervisor lifecycle. The export
+        // coordinator, web UI and alert webhook went with the SIEM
+        // integration (2026-10-27). Idle lifecycle machinery stays banned
+        // below.
         Assert.Equal(
-            5,
+            2,
             program.Split(
                 "AddSingleton<IHostedService>",
                 StringSplitOptions.None).Length - 1);
-        // Export must never sit between audit admission and the supervisor
-        // as a startup dependency: it is registered after the gate and owns
-        // no admission coupling.
-        Assert.Contains(
-            "new AuditExportCoordinator(",
-            program,
-            StringComparison.Ordinal);
         Assert.Contains(
             "sp => sp.GetRequiredService<AuditRuntimeGate>()",
             program,

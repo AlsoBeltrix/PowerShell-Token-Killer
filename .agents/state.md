@@ -30,7 +30,7 @@ recurrence; diagnosis reopened per the closed plan; ruling D3), rr-12
 (MEDIUM, from the codex change review, fixed 2026-10-27: the installer
 accepted an rtk inside `~/.ptk/bin`, the payload the upgrade then deletes,
 and would also have left a `PTK_RTK_PATH` pointing there; codex reopened
-it six times (configured-path precedence and link following; case
+it nine times (configured-path precedence and link following; case
 sensitivity, whitespace and resolver exhaustion; the case probe's identity
 gap and an unguarded loop; payload names linking outside and the probe's
 write requirement; inode-only identity, the Windows probe write and a

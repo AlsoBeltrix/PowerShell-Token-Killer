@@ -9,7 +9,7 @@ pending. See `.agents/review/findings/rr-13.md`.
 
 ## rr-12 payload-resident rtk accepted, then deleted by the upgrade (2026-10-27)
 
-Fixed on `master` in seven commits: the rtk lookup skips the payload
+Fixed on `master` in ten commits: the rtk lookup skips the payload
 (`~/.ptk/bin`, decided by exact read-only directory identity along every
 hop of the candidate's link chain: device and inode from `stat` on Unix,
 volume serial and 128-bit file id on Windows, so spellings, links,

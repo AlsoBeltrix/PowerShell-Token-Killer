@@ -978,7 +978,10 @@ function Install-PtkRtkRelease {
             # Absolute where it exists, since callers may run with a replaced PATH.
             $tar = @('/usr/bin/tar', '/bin/tar') | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
                 Select-Object -First 1
-            if (-not $tar) { $tar = (Get-Command tar -CommandType Application -ErrorAction Stop).Source }
+            if (-not $tar) {
+                # The first on PATH only: a Windows runner lists System32's and Git's.
+                $tar = (Get-Command tar -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
+            }
             & $tar -xzf $archive -C $extracted
             if ($LASTEXITCODE -ne 0) { throw "tar failed to extract $asset." }
         }

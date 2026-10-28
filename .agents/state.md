@@ -37,12 +37,14 @@ superseded, and the per-call identity decision is restored as ACTIVE
 `4c9b2198`, branch `release/0.3.0-rc.6`, `Release` run `40575011312`
 (five native legs and the draft), draft `v0.3.0-rc.6` with seven assets
 and the final notes, downloaded-release verification `40575768473` green
-on all six jobs; record `.agents/release-candidate-0.3.0-rc.6.md`. Waiting
-published by the owner 2026-10-27 20:42 UTC. The automatic channel
-publication failed in Homebrew validation (Homebrew 7.0.11 tap trust; see
-the candidate record), the fix is on master and the publication is
-re-dispatched; then the public bootstrap proof of rc.6 itself (owner-run
-script, already proved live against the rc.5 payload on `nagatha`).
+on all six jobs; record `.agents/release-candidate-0.3.0-rc.6.md`. The
+owner published it 2026-10-27 20:42 UTC. The automatic channel publication
+failed in Homebrew validation (Homebrew 7.0.11 tap trust); fixed at
+`18ebd87c`, and the owner's re-dispatch `40607922559` published Homebrew,
+Scoop and AUR. The public bootstrap proof of rc.6 passed (owner-run on
+`nagatha`). Open: the winget pull request (owner's call; rc.5's #460717
+waits on a moderator) and deleting the four merged `release/*` branches on
+GitHub (owner's word).
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
 auditing or SIEM; their code is to be removed under

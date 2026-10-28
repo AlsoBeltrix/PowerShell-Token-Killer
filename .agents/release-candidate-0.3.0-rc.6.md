@@ -52,7 +52,11 @@ Publishing stays an owner action.
 
 - Public bootstrap proof (`scripts/install.ps1 -FromRelease -Version
   0.3.0-rc.6 -InstallPrerequisites`, isolated home, no rtk on `PATH`):
-  _pending_.
+  passed, owner-run on `nagatha` 2026-10-27 20:19 EDT against the
+  published release. Run A downloaded rtk, placed `~/.local/bin/rtk` with
+  its marker and hash, and stopped with the PATH advice (exit 1); run B
+  found it on `PATH`, installed the rc.6 payload, and passed the staged and
+  installed handshakes ("Installed ptk 0.3.0-rc.6", exit 0).
 - Package channels (`Publish package channels` on `release: published`):
   the owner published the draft 2026-10-27 20:42 UTC. The automatic run
   `40580462561` failed in the Homebrew validation on all three runners and
@@ -61,6 +65,24 @@ Publishing stays an owner action.
   implicit tap trust to install commands; the local 7.0.10 audit still
   passes without trust, so the proof is the CI run. Fixed by `brew trust
   ptk-validation/local` after `tap-new` in `validate-packages.yml`, then
-  re-dispatched from master with `version=0.3.0-rc.6`: _result pending_.
+  re-dispatched from master with `version=0.3.0-rc.6`. CI `40581777053` at
+  the fix `18ebd87c` passed on all three platforms. The owner-dispatched
+  run `40607922559` passed all eight validation jobs (Homebrew on
+  ubuntu-latest, macos-latest and ubuntu-24.04-arm with the trust fix,
+  Windows ×2, AUR, manifests), then published:
+  - **Homebrew** `roethlar/homebrew-tap`: "ptk: publish 0.3.0-rc.6",
+    2026-10-28 00:21 UTC.
+  - **Scoop** `roethlar/scoop-bucket`: "ptk: publish 0.3.0-rc.6",
+    2026-10-28 00:21 UTC.
+  - **AUR** `ptk-bin`: the git `.SRCINFO` carries `pkgver = 0.3.0rc6`,
+    `pkgrel = 1`; the AUR RPC still reported `0.3.0rc5-1` minutes later,
+    the same indexing lag rc.5 showed.
+  - **winget** stopped as designed (no `WINGET_TOKEN`), as for rc.5.
 - winget: move microsoft/winget-pkgs#460717 to rc.6 or open its successor:
-  _pending_.
+  _pending, owner's call_ (a pull request on `microsoft/winget-pkgs` under
+  the owner's account). #460717 is the rc.5 new-package request: its
+  checks 01–07 and 09–10 pass, installation validation (08) is neutral,
+  and it carries `Validation-No-Executables` ("No application executables
+  were discovered after installation; review is required"), so it waits on
+  a moderator. The validated rc.6 manifests are the `package-manifests`
+  artifact of run `40607922559`.

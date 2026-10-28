@@ -109,7 +109,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          existing=$(gh pr list -R microsoft/winget-pkgs --head "roethlar:ptk-$PTK_PACKAGE_VERSION" --state all --json url --jq '.[0].url // empty')
+          # --head matches the bare branch name only; an owner prefix matches
+          # nothing, so the owner is filtered in the query.
+          existing=$(gh pr list -R microsoft/winget-pkgs --head "ptk-$PTK_PACKAGE_VERSION" --state all \
+            --json url,headRepositoryOwner --jq '[.[]|select(.headRepositoryOwner.login=="roethlar")][0].url // empty')
           if [ -n "$existing" ]; then
             echo "$existing"
             exit 0

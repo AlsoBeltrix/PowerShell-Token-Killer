@@ -24,8 +24,12 @@ def publish(channel, manifests, version, proof_url, work):
     checkout = work / channel
     if channel == "winget":
         branch = f"ptk-{version}"
-        existing = json.loads(subprocess.check_output(["gh", "pr", "list", "--repo", "microsoft/winget-pkgs",
-            "--head", "roethlar:" + branch, "--state", "all", "--json", "url,state"]))
+        # gh pr list --head matches the bare branch name only (an
+        # owner-prefixed value matches nothing), so filter the owner here.
+        existing = [request for request in json.loads(subprocess.check_output(["gh", "pr", "list",
+            "--repo", "microsoft/winget-pkgs", "--head", branch, "--state", "all",
+            "--json", "url,state,headRepositoryOwner"]))
+            if request["headRepositoryOwner"]["login"] == "roethlar"]
         if existing:
             print(json.dumps(existing))
             return

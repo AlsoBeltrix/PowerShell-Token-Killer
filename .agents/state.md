@@ -43,8 +43,10 @@ failed in Homebrew validation (Homebrew 7.0.11 tap trust); fixed at
 `18ebd87c`, and the owner's re-dispatch `40607922559` published Homebrew,
 Scoop and AUR. The public bootstrap proof of rc.6 passed (owner-run on
 `nagatha`). The four merged `release/*` branches are deleted (owner's
-word). Open: the owner runs the winget swap (an rc.6 new-package request
-replacing rc.5's #460717; see the candidate record).
+word). winget: rc.6's new-package request microsoft/winget-pkgs#463601 is
+open and waits on a moderator; rc.5's #460717 is closed with a link to it.
+The winget existing-request lookup never matched (`gh pr list --head`
+takes the bare branch); fixed and guarded.
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
 auditing or SIEM; their code is to be removed under

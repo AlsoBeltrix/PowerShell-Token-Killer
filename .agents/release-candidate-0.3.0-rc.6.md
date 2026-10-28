@@ -88,7 +88,16 @@ Publishing stays an owner action.
   with a link to it. Auto mode refuses the submission, so the owner runs
   `scratchpad/winget-rc6/swap.sh` of session `315c7d81` (the publish
   script's winget path with the validated manifests, hashes checked against
-  rc.6's `SHA256SUMS`): _pending_. #460717 is the rc.5 new-package request: its
+  rc.6's `SHA256SUMS`). Done 2026-10-27: the owner's run opened
+  microsoft/winget-pkgs#463601 ("New package: Roethlar.PowerShellTokenKiller
+  version 0.3.0-rc.6"); its follow-up lookup then found nothing, so I
+  closed #460717 with a link to #463601. Cause, a real defect: `gh pr list
+  --head` matches only the bare branch name, and the publish script and the
+  `publish-packages.yml` winget job both passed `roethlar:ptk-<version>`, so
+  their existing-request check never matched. Fixed with the bare branch
+  and an owner filter, guarded in `scripts/test-publish-package-manifests.py`
+  (red on the old code, green on the fix; the fixed lookup finds #463601
+  live). #463601 now waits on a moderator, like #460717 did. #460717 is the rc.5 new-package request: its
   checks 01–07 and 09–10 pass, installation validation (08) is neutral,
   and it carries `Validation-No-Executables` ("No application executables
   were discovered after installation; review is required"), so it waits on

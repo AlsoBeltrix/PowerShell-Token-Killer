@@ -42,9 +42,9 @@ owner published it 2026-10-27 20:42 UTC. The automatic channel publication
 failed in Homebrew validation (Homebrew 7.0.11 tap trust); fixed at
 `18ebd87c`, and the owner's re-dispatch `40607922559` published Homebrew,
 Scoop and AUR. The public bootstrap proof of rc.6 passed (owner-run on
-`nagatha`). Open: the winget pull request (owner's call; rc.5's #460717
-waits on a moderator) and deleting the four merged `release/*` branches on
-GitHub (owner's word).
+`nagatha`). The four merged `release/*` branches are deleted (owner's
+word). Open: the owner runs the winget swap (an rc.6 new-package request
+replacing rc.5's #460717; see the candidate record).
 
 **Audit and SIEM are dead, 2026-10-27 (owner):** no agent dev time on
 auditing or SIEM; their code is to be removed under

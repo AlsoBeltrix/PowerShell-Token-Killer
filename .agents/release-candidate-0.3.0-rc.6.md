@@ -20,6 +20,11 @@ Publishing stays an owner action.
   `ptk-0.3.0-rc.6-{linux-x64,linux-arm64,osx-arm64}.tar.gz`,
   `ptk-installer.zip`, `SHA256SUMS`); the receiver archives are gone.
 - Build branch on canonical `origin`: `release/0.3.0-rc.6`, pointing at the source above. <!-- lint: allow (Git branch, not a repository path) -->
+  Deleted on the owner's word 2026-10-27, with `release/0.3.0-rc.3`
+  through `rc.5`, from GitHub and the Gitea mirror: every head was an
+  ancestor of `master`, the rc.4–rc.6 heads equal their `v*` tags, and
+  rc.3 (never published) keeps its source as its draft's target SHA
+  `e823781b`.
 - Release notes: `.agents/release-notes-0.3.0-rc.6.md`.
 
 ## Current evidence
@@ -79,8 +84,11 @@ Publishing stays an owner action.
     the same indexing lag rc.5 showed.
   - **winget** stopped as designed (no `WINGET_TOKEN`), as for rc.5.
 - winget: move microsoft/winget-pkgs#460717 to rc.6 or open its successor:
-  _pending, owner's call_ (a pull request on `microsoft/winget-pkgs` under
-  the owner's account). #460717 is the rc.5 new-package request: its
+  the owner chose 2026-10-27 to swap in an rc.6 request and close #460717
+  with a link to it. Auto mode refuses the submission, so the owner runs
+  `scratchpad/winget-rc6/swap.sh` of session `315c7d81` (the publish
+  script's winget path with the validated manifests, hashes checked against
+  rc.6's `SHA256SUMS`): _pending_. #460717 is the rc.5 new-package request: its
   checks 01–07 and 09–10 pass, installation validation (08) is neutral,
   and it carries `Validation-No-Executables` ("No application executables
   were discovered after installation; review is required"), so it waits on
